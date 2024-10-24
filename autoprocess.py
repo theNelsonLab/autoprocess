@@ -14,19 +14,19 @@ def convert(sample_movie, distance, rotation, exposure, pix_size, i):
     pix_size = str(pix_size)
     run([ser2smv, "-P", pix_size, "-B", "2", "-r", rotation, "-w", e_wavelength, 
                      "-d", distance, "-E", exposure, "-M", "200", "-v", 
-                     "-o", sample_movie + "_###.img", os.path.join("..", i)], stdout=open(os.devnull, 'wb'))
+                     "-o", sample_movie + "_###.img", os.path.join("..", i)],
+                     stdout=open(os.devnull, 'wb'))
 
 def process_movie():
     current_path = os.getcwd()
-    file = os.listdir()
+    files = os.listdir()
 
     s_pix = 7
     min_pix = 7
     bkgrnd_pix = 4
     pix_size = 0.028
 
-
-    for i in file:
+    for i in files:
         if i.endswith(".ser"):
             split = i.split("_")
             if len(split) < 4:
@@ -42,6 +42,10 @@ def process_movie():
                 os.makedirs(sample_movie, exist_ok=True)
                 movie_path = os.path.join(current_path, sample_movie)
                 os.rename(i, os.path.join(movie_path, i))
+
+                for emi in files:
+                    if emi.startswith(f"{sample_movie}_{distance}") and emi.endswith(".emi"):
+                        os.rename(emi, os.path.join(movie_path, emi))
 
                 image_path = os.path.join(movie_path, "images")
                 os.makedirs(image_path, exist_ok=True)
@@ -63,10 +67,13 @@ OSCILLATION_RANGE= {float(exposure) * float(rotation)}
 X-RAY_WAVELENGTH= 0.0251000002
 
 NAME_TEMPLATE_OF_DATA_FRAMES= {data_path}_???.img
+
 BACKGROUND_RANGE=1 10
 !DELPHI=15
+
 !SPACE_GROUP_NUMBER=0
 !UNIT_CELL_CONSTANTS= 1 1 1 90 90 90
+
 INCLUDE_RESOLUTION_RANGE= 40 {resolution_range}
 TEST_RESOLUTION_RANGE= 40 {test_resolution_range}
 TRUSTED_REGION=0.0 1.2
@@ -86,11 +93,11 @@ REFINE(CORRECT)=CELL BEAM ORIENTATION AXIS  ! DISTANCE
 
 DATA_RANGE= 1 {image_number}
 SPOT_RANGE= 1 {image_number}
-BACKGROUND_PIXEL={bkgrnd_pix}
+
+BACKGROUND_PIXEL= {bkgrnd_pix}
 SIGNAL_PIXEL= {s_pix}
 MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT= {min_pix}
-!
-!""")
+""")
 
                     xds_inp.close()
                 xds_out_path = os.path.join(auto_process_path, "XDS.LP")
@@ -104,53 +111,64 @@ MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT= {min_pix}
 
 def process_check(sample_movie):
     if os.path.isfile('XDS.INP'):
-        if os.path.isfile('X-CORRECTIONS.cbf') == False:
+        if not os.path.isfile('X-CORRECTIONS.cbf'):
             with open('XDS.LP', "w+") as xds_out:
                 print("XDS is running...")
-                run("xds", stdout= xds_out)
+                run("xds", stdout=xds_out)
             
-        if os.path.isfile('XPARM.XDS') == False:
-            for i in range(10):
+        if not os.path.isfile('XPARM.XDS'):
+            for _ in range(10):
                 with open('XDS.INP', 'r+') as f:
                     lines = f.readlines()
-                    f.seek(0)
-                    bkgrnd_pix = random.randrange(2, 5, 1)
-                    s_pix = random.randrange(4, 9, 1)
-                    min_pix = random.randrange(4, 9, 1)
-                    f.writelines(lines[:-5]) 
-                    f.write(f"""BACKGROUND_PIXEL={bkgrnd_pix}
-SIGNAL_PIXEL= {s_pix}  
-MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT= {min_pix}
-!
-!""")
-                    print("Screening new indexing values.") 
-                    with open('XDS.LP', "w+") as xds_out:
-                        run("xds", stdout= xds_out)
+
+                bkgrnd_pix = random.randrange(3, 5, 1)
+                s_pix = random.randrange(4, 9, 1)
+                min_pix = random.randrange(5, 9, 1)
+
+                for index, line in enumerate(lines):
+                    if "BACKGROUND_PIXEL=" in line:
+                        lines[index] = f"BACKGROUND_PIXEL= {bkgrnd_pix}\n"
+                    if "SIGNAL_PIXEL=" in line:
+                        lines[index] = f"SIGNAL_PIXEL= {s_pix}\n"
+                    if "MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT=" in line:
+                        lines[index] = f"MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT= {min_pix}\n"
+
+                with open('XDS.INP', 'w') as f:
+                    f.writelines(lines)
+
+                print("Screening new indexing values.")
+                with open('XDS.LP', "w+") as xds_out:
+                    print("XDS is running...")
+                    run("xds", stdout=xds_out)
+
                 if os.path.isfile('XPARM.XDS'):
-                    if os.path.isfile('DEFPIX.LP') == False:
+                    if not os.path.isfile('DEFPIX.LP'):
                         with open('XDS.INP', 'r+') as f:
                             lines = f.readlines()
                             f.seek(0)
-                            f.write(f"""!JOB=XYCORR INIT COLSPOT IDXREF DEFPIX INTEGRATE CORRECT
+                            f.write("""!JOB=XYCORR INIT COLSPOT IDXREF DEFPIX INTEGRATE CORRECT
 JOB=DEFPIX INTEGRATE CORRECT
 """)
-                            f.writelines(lines[2:]) 
-                            print("Less than 50% of spots went through:")
-                            print("Running with JOB= DEFPIX INTEGRATE CORRECT...")
-                            with open('XDS.LP', "w+") as xds_out:
-                                run("xds", stdout= xds_out) 
-                            if os.path.isfile('XPARM.XDS') == False:
-                                print(f"Unable to autoprocess {sample_movie}!")
-                                break
-                                
-                            else:
-                                return process_check(sample_movie)
+                            f.writelines(lines[2:])
+
+                        print("Less than 50% of spots went through:")
+                        print("Running with JOB= DEFPIX INTEGRATE CORRECT...")
+                        
+                        with open('XDS.LP', "w+") as xds_out:
+                            print("XDS is running...")
+                            run("xds", stdout=xds_out)
+
+                        if not os.path.isfile('XPARM.XDS'):
+                            print(f"Unable to autoprocess {sample_movie}!")
+                            break
+                        else:
+                            return process_check(sample_movie)
                     else:
                         return process_check(sample_movie)
-            else:
-                print(f"Unable to autoprocess {sample_movie}!")
+
+            print(f"Unable to autoprocess {sample_movie}!")
         
-        elif os.path.isfile('DEFPIX.LP') == False:
+        elif not os.path.isfile('DEFPIX.LP'):
             with open('XDS.INP', 'r+') as f:
                 lines = f.readlines()
                 f.seek(0)
@@ -158,30 +176,39 @@ JOB=DEFPIX INTEGRATE CORRECT
 JOB=DEFPIX INTEGRATE CORRECT
 """)
                 f.writelines(lines[2:]) 
+
             print("Less than 50% of spots went through:")
             print("Running with JOB= DEFPIX INTEGRATE CORRECT...")
+
             with open('XDS.LP', "w+") as xds_out:
-                run("xds", stdout= xds_out)
+                print("XDS is running...")
+                run("xds", stdout=xds_out)
+
             return process_check(sample_movie)
 
-        elif os.path.isfile("INTEGRATE.HKL") == False:
+        elif not os.path.isfile("INTEGRATE.HKL"):
             with open('XDS.INP', 'r+') as f:
                 lines = f.readlines()
                 f.seek(0)
-                f.writelines(lines) 
-                f.write("""
-BEAM_DIVERGENCE= 0.03 BEAM_DIVERGENCE_E.S.D.= 0.003
+                f.writelines(lines)
+                f.write("""BEAM_DIVERGENCE= 0.03 BEAM_DIVERGENCE_E.S.D.= 0.003
 REFLECTING_RANGE=1.0 REFLECTING_RANGE_E.S.D.= 0.2""")
-                print("Adding beam divergence values to correct a common error.")
-                with open('XDS.INP') as f1:
-                    lines = f1.readlines()
-                if os.path.isfile("INTEGRATE.HKL") == False:
-                    print(f"Unable to autoprocess {sample_movie}!")
-                else:
-                    return process_check(sample_movie)
-        elif os.path.isfile("CORRECT.LP") == True:
+
+            print("Adding beam divergence values to correct a common error.")
+                
+            with open('XDS.LP', "w+") as xds_out:
+                print("XDS is running...")
+                run("xds", stdout=xds_out)
+            
+            if not os.path.isfile("INTEGRATE.HKL"):
+                print(f"Unable to autoprocess {sample_movie}!")
+            else:
+                return process_check(sample_movie)
+                
+        elif os.path.isfile("CORRECT.LP"):
             print ("Successful indexing!")
             return mosaicity(sample_movie)
+
 
 def mosaicity(sample_movie):
     with open('XDS.INP', 'r+') as f:
@@ -190,63 +217,93 @@ def mosaicity(sample_movie):
         f.write("""!JOB=XYCORR INIT COLSPOT IDXREF DEFPIX INTEGRATE CORRECT
 JOB=DEFPIX INTEGRATE CORRECT
 """)
-        f.writelines(lines[2:-2])
-    with open('INTEGRATE.LP', 'r') as l1, open('XDS.INP', 'a') as f:
-        for line in l1:
-            if "BEAM_DIVERGENCE= " in line or "REFLECTING_RANGE=" in line:
-                f.write(line)
+        f.writelines(lines[2:])
+
+    beam_divergence = None
+    reflecting_range = None
+
+    with open('INTEGRATE.LP', 'r') as l:
+        for line in l:
+            if "BEAM_DIVERGENCE=" in line:
+                beam_divergence = line.strip()
+            if "REFLECTING_RANGE=" in line:
+                reflecting_range = line.strip()
+
+    beam_divergence_found = False
+    reflecting_range_found = False
+
+    for index, line in enumerate(lines):
+        if "BEAM_DIVERGENCE=" in line:
+            lines[index] = f"{beam_divergence}\n"
+            beam_divergence_found = True
+        if "REFLECTING_RANGE=" in line:
+            lines[index] = f"{reflecting_range}\n"
+            reflecting_range_found = True
+
+    if not beam_divergence_found and beam_divergence:
+        lines.append(f"{beam_divergence}\n")
+    if not reflecting_range_found and reflecting_range:
+        lines.append(f"{reflecting_range}\n")
+
+    with open('XDS.INP', 'w') as f:
+        f.writelines(lines)
+
     return iterate_opt(sample_movie)
 
-
 def iterate_opt(sample_movie):
-    with open('XDS.LP') as f1:
-        lines = f1.readlines()
-    with open('XDS.LP', 'w') as f2:
-        f2.writelines(lines[-26:]) 
-    with open('XDS.LP', 'r') as f:
-        line = f.readline()
-        for line in f:
-            if ["a", "b", "ISa"] == line.split():
-                next_line = f.readline()
-                stats = str.split(next_line)
-                Isa1 = float(stats[2])
-                print(f"Isa: {Isa1}. Testing new values now.")
+    Isa1 = None
+    Isa2 = None
+    space_group = None
+    unit_cell = None
+
+    with open('XDS.LP', 'r+') as f:
+        lines = f.readlines()
+        f.seek(0)
+        f.writelines(lines[-26:])
+
+    for line in lines:
+        if ["a", "b", "ISa"] == line.split():
+            next_line = lines[lines.index(line) + 1]
+            stats = next_line.split()
+            Isa1 = float(stats[2])
+            print(f"Isa: {Isa1}. Testing new values now.")
+    
     with open('XDS.LP', "w+") as xds_out:
-        run("xds", stdout= xds_out)
-    with open('XDS.LP') as f1:
-        lines = f1.readlines()
-    with open('XDS.LP', 'w') as f2:
-        f2.writelines(lines[-26:]) 
-    with open('XDS.LP', 'r') as f:
-        line = f.readline()
-        for line in f:
-            if ["a", "b", "ISa"] == line.split():
-                new_next_line = f.readline()
-                new_stats = str.split(new_next_line)             
-                Isa2 = float(new_stats[2])
-                print(f"Isa: {Isa2}")
-            if "SPACE_GROUP_NUMBER=" in line:
-                number = str.split(line)
-                space_group = number[1]
-            if "UNIT_CELL_CONSTANTS=" in line:
-                cell = str.split(line)
-                temp = cell[-6:]
-                temp_str = str(temp).strip("]['")
-                temp_str2 = temp_str.replace(",","")
-                unit_cell = temp_str2.replace("'","")
+        print("XDS is running...")
+        run("xds", stdout=xds_out)
+    
+    with open('XDS.LP', 'r+') as f:
+        lines = f.readlines()
+        f.seek(0)
+        f.writelines(lines[-26:])
+    
+    for line in lines:
+        if ["a", "b", "ISa"] == line.split():
+            new_next_line = lines[lines.index(line) + 1]
+            new_stats = new_next_line.split()
+            Isa2 = float(new_stats[2])
+            print(f"Isa: {Isa2}")
+        if "SPACE_GROUP_NUMBER=" in line:
+            space_group = line.split()[1]
+        if "UNIT_CELL_CONSTANTS=" in line:
+            cell = line.split()[-6:]
+            unit_cell = " ".join(cell)
+
     Isa_change = abs(Isa2 - Isa1)
+
     if Isa_change > 0.5:
         print("I'm trying to optimize beam divergence values.")
         return iterate_opt(sample_movie)
     else:
-        if space_group is not None and unit_cell is not None:
+        if space_group and unit_cell:
             print("Optimized beam divergence values.")
-            f = open('stats.LP','w')
-            f.write(str(space_group) + "\n" + unit_cell)
-            f.close()
+            with open('stats.LP', 'w') as f:
+                f.write(f"{space_group}\n{unit_cell}")
             print(f"I found space group {space_group} and a unit cell of")
             print(unit_cell)
             return scale_conv(sample_movie)
+        else:
+            print(f"Space group or unit cell not found. Cannot finish autoprocess for {sample_movie}.")
 
 def scale_conv(sample_movie):
     if os.path.isfile("CORRECT.LP"):
@@ -267,32 +324,37 @@ OUTPUT_FILE= {sample_movie}.hkl SHELX
 GENERATE_FRACTION_OF_TEST_REFLECTIONS=0.10
 FRIEDEL'S_LAW=FALSE
 """)
-        with open("xdsconv.LP", "w+") as xdsconv_out:
-            run("xdsconv", stdout=xdsconv_out)
-        print("I converted it for use in shelx!")
-        
-        # Run CCP4's pointless and process its output
-        run("/central/groups/NelsonLab/programs/ccp4-8.0/bin/pointless XDS_ASCII.HKL > pointless.LP", shell=True)
-        
-        # Parse space group information from pointless output
-        with open('pointless.LP', 'r') as p1:
-            lines = p1.readlines()
-            for index, line in enumerate(lines):
-                if ["Spacegroup", "TotProb", "SysAbsProb", "Reindex", "Conditions"] == line.split():
-                    with open("pointless_group.LP", 'w') as pg:
-                        for i in range(2, 7):  # Process lines index+2 to index+6
-                            sp_items = lines[index + i].split()
-                            for item in sp_items:
-                                if item.endswith(")"):
-                                    # Extract and process only the first matching item
-                                    sp_cleaned = item.strip(')(')
-                                    pg.write(f"{sp_cleaned}\n")  # Using f-string for writing to file
-                                    # Print out the parsed space group information using f-string
-                                    print(f"Possible space group: {sp_cleaned}")
-                                    # Break after the first match per line
-                                    break
 
-            
+    return check_space_group(sample_movie)
+
+def check_space_group(sample_movie):
+    with open("xdsconv.LP", "w+") as xdsconv_out:
+        run("xdsconv", stdout=xdsconv_out)
+    print("I converted it for use in shelx!")
+
+    # Run CCP4's pointless and process its output
+    run("/central/groups/NelsonLab/programs/ccp4-8.0/bin/pointless XDS_ASCII.HKL > pointless.LP",
+        shell=True)
+
+    # Parse space group information from pointless output
+    with open('pointless.LP', 'r') as p1:
+        lines = p1.readlines()
+        for index, line in enumerate(lines):
+            if ["Spacegroup", "TotProb", "SysAbsProb", "Reindex", "Conditions"] == line.split():
+                with open("pointless_group.LP", 'w') as pg:
+                    for i in range(2, 7):  # Process lines index+2 to index+6
+                        sp_items = lines[index + i].split()
+                        for item in sp_items:
+                            if item.endswith(")"):
+                                # Extract and process only the first matching item
+                                sp_cleaned = item.strip(')(')
+                                pg.write(f"{sp_cleaned}\n")  # Using f-string for writing to file
+                                # Print out the parsed space group information using f-string
+                                print(f"Possible space group: {sp_cleaned}")
+                                # Break after the first match per line
+                                break
+
+
 
 if __name__== "__main__":
     process_movie()
