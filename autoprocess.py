@@ -307,7 +307,6 @@ def iterate_opt(sample_movie):
 
 def scale_conv(sample_movie):
     if os.path.isfile("CORRECT.LP"):
-        # Create XSCALE.INP and run xscale
         with open('XSCALE.INP', 'w') as xscale:
             xscale.write(f"""OUTPUT_FILE= {sample_movie}.ahkl
 INPUT_FILE= XDS_ASCII.HKL
@@ -317,7 +316,6 @@ RESOLUTION_SHELLS= 10 8 5 3 2.3 2.0 1.7 1.5 1.3 1.2 1.1 1.0 0.90 0.80
             run("xscale", stdout=xscale_out)
         print("I scaled the data in XSCALE.")
         
-        # Create XDSCONV.INP and run xdsconv
         with open('XDSCONV.INP', 'w') as xdsconv:
             xdsconv.write(f"""INPUT_FILE= {sample_movie}.ahkl
 OUTPUT_FILE= {sample_movie}.hkl SHELX
@@ -336,7 +334,6 @@ def check_space_group(sample_movie):
     run("/central/groups/NelsonLab/programs/ccp4-8.0/bin/pointless XDS_ASCII.HKL > pointless.LP",
         shell=True)
 
-    # Parse space group information from pointless output
     with open('pointless.LP', 'r') as p1:
         lines = p1.readlines()
         for index, line in enumerate(lines):
@@ -346,12 +343,9 @@ def check_space_group(sample_movie):
                         sp_items = lines[index + i].split()
                         for item in sp_items:
                             if item.endswith(")"):
-                                # Extract and process only the first matching item
                                 sp_cleaned = item.strip(')(')
-                                pg.write(f"{sp_cleaned}\n")  # Using f-string for writing to file
-                                # Print out the parsed space group information using f-string
+                                pg.write(f"{sp_cleaned}\n")
                                 print(f"Possible space group: {sp_cleaned}")
-                                # Break after the first match per line
                                 break
 
 
