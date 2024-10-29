@@ -1,34 +1,53 @@
 # autoprocess.py
 
 ## Description
-Autoprocess is a Python script designed to automate the initial steps of MicroED data processing utilizing XDS. The script takes input data files as .ser movies in a specific format, converts them to images, and attempts to index and integrate by XDS independently.
+**autoprocess.py** is a Python script designed for the automation of initial MicroED data processing using the XDS suite. It streamlines steps like image conversion, indexing, and integration, offering fast feedback on data quality. It is particularly useful for determining if data collection should continue or as a learning tool for processing MicroED data.
 
-It is designed to be used as a tool that aids in quickly deciding whether data collection should be continued or not, or when learning how to process microED data.
-
+## Key Features
+- **Automated .ser to .img Conversion**: Converts .ser movie files to .img format compatible with XDS using `ser2smv`.
+- **Dynamic XDS Optimization**: Adjusts indexing parameters iteratively for improved data processing outcomes.
+- **Automatic Scaling and Conversion**: Scales processed data in XSCALE and converts it for further analysis in SHELX and CCP4's `pointless`.
 
 ## Requirements
-1. Properly installed XDS software (can be obtained from: https://xds.mr.mpg.de/) that can be called from Linux or Unix using the "xds" command
-2. The ser2smv image conversion program (can be obtained from: https://cryoem.ucla.edu/downloads/snapshots)
-3. Python 3
+1. **XDS Software**: Properly installed XDS (available from [xds.mr.mpg.de](https://xds.mr.mpg.de/)) accessible via the `xds` command in Linux/Unix.
+2. **ser2smv Conversion Program**: Required to convert .ser files to .img format. Available for download from [UCLA CryoEM](https://cryoem.ucla.edu/downloads/snapshots).
+3. **Python 3**: Ensure Python 3 is installed with necessary permissions.
 
 ## Usage
-1. Name .ser files according to the following format: your-name-here_detectordistance_rotationspeed_integrationtime_your-notes-here.ser. Example: Example-mov1_960_0.3_3_n60deg-to-p10deg_gun8spot10_cryo.ser
-Rotation speed is degrees/second, exposure time is in seconds, and detector distance is in mm.
-    
-2. Navigate to the directory containing your ser files and copy the autoprocess.py script. Edits to the script may need to be performed to locate ser2smv or for differences in microscope configurations.
+### Preparing .ser Files
+1. **File Naming Convention**: Name .ser files using the following format:
+   ```
+   sample-name_distance_rotation_exposure_additional-notes.ser
+   ```
+   - Example: `sample-mov1_960_0.3_3_n60top10_g8sp10_cryo.ser`
+   - Where:
+     - `distance`: Detector distance in mm.
+     - `rotation`: Rotation speed in degrees/second.
+     - `exposure`: Exposure time in seconds.
 
-3. Run the autoprocess.py script:
+### Running autoprocess.py
+1. **Set Up**: Place `autoprocess.py` in the directory containing your .ser files. You may need to edit the script to specify paths to `ser2smv` or adjust settings for your microscope.
+2. **Execute**: Run the script as follows:
    ```shell
    python autoprocess.py
    ```
+   The script will process all .ser files in the directory, automatically converting, indexing, and preparing files for further data analysis.
+
+## Workflow Overview
+- **Conversion**: Converts each .ser movie into .img files compatible with XDS.
+- **Indexing & Integration**: Initiates XDS with default settings, iteratively adjusting if needed to improve indexing success.
+- **Space Group Determination**: Uses CCP4's `pointless` to analyze symmetry and identify possible space groups.
+- **Output Files**: Saves processed data in appropriate directories and generates `.hkl` files for SHELX processing.
 
 ## Contributing
-Contributions to autoprocess.py are welcome! If you encounter any issues or have suggestions for improvements, please open an issue on the [GitHub repository](https://github.com/jess-burch/microed/issues).
+Contributions to `autoprocess.py` are welcome! For feature requests, bug reports, or improvements, please open an issue on the [GitHub repository](https://github.com/theNelsonLab/autoprocess/issues).
 
 ## License
-This project is licensed under the [MIT License](https://github.com/jess-burch/microed/blob/main/LICENSE).
+This project is licensed under the [MIT License](https://github.com/theNelsonLab/autoprocess/blob/main/LICENSE).
 
 ## Acknowledgments
-autoprocess.py was developed by [Jessica Burch](https://github.com/jess-burch).
+`autoprocess.py` was originally developed by [Jessica Burch](https://github.com/jess-burch) and enhanced by [Dmitry Eremin](https://github.com/mit-eremin) . Special thanks to the Nelson Lab for supporting ongoing improvements.
 
-Please note that this script is provided as-is, without any warranties. Use it at your own risk.
+---
+
+This README now includes more structured information about features, usage, and key steps in the script's processing workflow. Let me know if you’d like further customization!
