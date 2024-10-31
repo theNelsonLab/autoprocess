@@ -4,6 +4,53 @@ autoprocess_version3 modified by Dmitry Eremin from original file by Jessica Bur
 import os
 import random
 from subprocess import run
+import logging
+
+def print_bunner():
+    log_print(r"")
+    log_print(r"                     THANK YOU FOR USING                    ")
+    log_print(r"")
+    log_print(r"    ___         __       ____                               ")
+    log_print(r"   /   | __  __/ /_____ / __ \___________________________   ")
+    log_print(r"  / /| |/ / / / __/ __ / /_/ / __/__ / __/ _  / ___/ ___/hmn")
+    log_print(r" / ___ / /_/ / /_/ /_// /\__/ // /_// /_/  __(__  (__  )jeb ")
+    log_print(r"/_/  |_\____/\__/\___/_/   /_/ \___/\___/\__/\___/\___/dbe  ")
+    log_print(r"")
+
+def setup_logging(log_file: str, dir_name: str) -> None:
+    """Configure logging with plain message output to both console and file.
+
+    Args:
+        log_file: Name of the log file to create in the specified directory.
+        dir_name: Name of the directory where the log file will be saved.
+    """
+    # Create output directory if it doesn't exist
+    log_dir = os.path.join(os.getcwd(), dir_name)
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Get the root logger and clear any existing handlers
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    root_logger.setLevel(logging.INFO)
+
+    # Plain formatter with no extra information
+    plain_formatter = logging.Formatter('%(message)s')
+
+    # Set up console handler for user feedback
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(plain_formatter)
+    root_logger.addHandler(console_handler)
+
+    # Set up file handler for plain message logging
+    log_path = os.path.join(log_dir, log_file)
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setFormatter(plain_formatter)
+    root_logger.addHandler(file_handler)
+
+def log_print(message: str) -> None:
+    """Helper function to log messages as plain text."""
+    logging.info(message)
 
 def convert(sample_movie, distance, rotation, exposure, pix_size, i):
     #Following assumes you followed the naming convention of "name_distance_rotation_exposure.ser"
@@ -30,13 +77,13 @@ def process_movie():
         if i.endswith(".ser"):
             split = i.split("_")
             if len(split) < 4:
-                print(f"Skipping {i}: unexpected filename format.")
+                log_print(f"Skipping {i}: unexpected filename format.")
                 continue
             sample_movie, distance, rotation, exposure = split[0], split[1], split[2], split[3]
             resolution_range = float(distance) * 0.0009 - 0.1
             test_resolution_range = round(float(distance) * 0.0009 - 0.1, 2)
             if resolution_range < 0 or test_resolution_range < 0:
-                print(f"Skipping {i}: resolution range is negative.")
+                log_print(f"Skipping {i}: resolution range is negative.")
                 continue
             if not os.path.exists(sample_movie):
                 os.makedirs(sample_movie, exist_ok=True)
@@ -102,18 +149,18 @@ MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT= {min_pix}
                     xds_inp.close()
                 xds_out_path = os.path.join(auto_process_path, "XDS.LP")
                 with open(xds_out_path, "w+") as xds_out:
-                    print(f"Processing {sample_movie}...")
+                    log_print(f"Processing {sample_movie}...")
                     run("xds", stdout=xds_out)
                 process_check(sample_movie)
                 os.chdir(current_path)
             else:
-                print(f"Already processed {i}")
+                log_print(f"Already processed {i}")
 
 def process_check(sample_movie):
     if os.path.isfile('XDS.INP'):
         if not os.path.isfile('X-CORRECTIONS.cbf'):
             with open('XDS.LP', "w+") as xds_out:
-                print("XDS is running...")
+                log_print("XDS is running...")
                 run("xds", stdout=xds_out)
             
         if not os.path.isfile('XPARM.XDS'):
@@ -136,9 +183,9 @@ def process_check(sample_movie):
                 with open('XDS.INP', 'w') as f:
                     f.writelines(lines)
 
-                print("Screening new indexing values.")
+                log_print("Screening new indexing values.")
                 with open('XDS.LP', "w+") as xds_out:
-                    print("XDS is running...")
+                    log_print("XDS is running...")
                     run("xds", stdout=xds_out)
 
                 if os.path.isfile('XPARM.XDS'):
@@ -151,22 +198,22 @@ JOB=DEFPIX INTEGRATE CORRECT
 """)
                             f.writelines(lines[2:])
 
-                        print("Less than 50% of spots went through:")
-                        print("Running with JOB= DEFPIX INTEGRATE CORRECT...")
+                        log_print("Less than 50% of spots went through:")
+                        log_print("Running with JOB= DEFPIX INTEGRATE CORRECT...")
                         
                         with open('XDS.LP', "w+") as xds_out:
-                            print("XDS is running...")
+                            log_print("XDS is running...")
                             run("xds", stdout=xds_out)
 
                         if not os.path.isfile('XPARM.XDS'):
-                            print(f"Unable to autoprocess {sample_movie}!")
+                            log_print(f"Unable to autoprocess {sample_movie}!")
                             break
                         else:
                             return process_check(sample_movie)
                     else:
                         return process_check(sample_movie)
 
-            print(f"Unable to autoprocess {sample_movie}!")
+            log_print(f"Unable to autoprocess {sample_movie}!")
         
         elif not os.path.isfile('DEFPIX.LP'):
             with open('XDS.INP', 'r+') as f:
@@ -177,11 +224,11 @@ JOB=DEFPIX INTEGRATE CORRECT
 """)
                 f.writelines(lines[2:]) 
 
-            print("Less than 50% of spots went through:")
-            print("Running with JOB= DEFPIX INTEGRATE CORRECT...")
+            log_print("Less than 50% of spots went through:")
+            log_print("Running with JOB= DEFPIX INTEGRATE CORRECT...")
 
             with open('XDS.LP', "w+") as xds_out:
-                print("XDS is running...")
+                log_print("XDS is running...")
                 run("xds", stdout=xds_out)
 
             return process_check(sample_movie)
@@ -194,14 +241,14 @@ JOB=DEFPIX INTEGRATE CORRECT
                 f.write("""BEAM_DIVERGENCE= 0.03 BEAM_DIVERGENCE_E.S.D.= 0.003
 REFLECTING_RANGE=1.0 REFLECTING_RANGE_E.S.D.= 0.2""")
 
-            print("Adding beam divergence values to correct a common error.")
+            log_print("Adding beam divergence values to correct a common error.")
                 
             with open('XDS.LP', "w+") as xds_out:
-                print("XDS is running...")
+                log_print("XDS is running...")
                 run("xds", stdout=xds_out)
             
             if not os.path.isfile("INTEGRATE.HKL"):
-                print(f"Unable to autoprocess {sample_movie}!")
+                log_print(f"Unable to autoprocess {sample_movie}!")
             else:
                 return process_check(sample_movie)
                 
@@ -266,10 +313,10 @@ def iterate_opt(sample_movie):
             next_line = lines[lines.index(line) + 1]
             stats = next_line.split()
             Isa1 = float(stats[2])
-            print(f"Isa: {Isa1}. Testing new values now.")
+            log_print(f"Isa: {Isa1}. Testing new values now.")
     
     with open('XDS.LP', "w+") as xds_out:
-        print("XDS is running...")
+        log_print("XDS is running...")
         run("xds", stdout=xds_out)
     
     with open('XDS.LP', 'r+') as f:
@@ -282,7 +329,7 @@ def iterate_opt(sample_movie):
             new_next_line = lines[lines.index(line) + 1]
             new_stats = new_next_line.split()
             Isa2 = float(new_stats[2])
-            print(f"Isa: {Isa2}")
+            log_print(f"Isa: {Isa2}")
         if "SPACE_GROUP_NUMBER=" in line:
             space_group = line.split()[1]
         if "UNIT_CELL_CONSTANTS=" in line:
@@ -292,18 +339,18 @@ def iterate_opt(sample_movie):
     Isa_change = abs(Isa2 - Isa1)
 
     if Isa_change > 0.5:
-        print("I'm trying to optimize beam divergence values.")
+        log_print("I'm trying to optimize beam divergence values.")
         return iterate_opt(sample_movie)
     else:
         if space_group and unit_cell:
-            print("Optimized beam divergence values.")
+            log_print("Optimized beam divergence values.")
             with open('stats.LP', 'w') as f:
                 f.write(f"{space_group}\n{unit_cell}")
-            print(f"I found space group {space_group} and a unit cell of")
-            print(unit_cell)
+            log_print(f"I found space group {space_group} and a unit cell of")
+            log_print(unit_cell)
             return scale_conv(sample_movie)
         else:
-            print(f"Space group or unit cell not found. Cannot finish autoprocess for {sample_movie}.")
+            log_print(f"Space group or unit cell not found. Cannot finish autoprocess for {sample_movie}.")
 
 def scale_conv(sample_movie):
     if os.path.isfile("CORRECT.LP"):
@@ -314,7 +361,7 @@ RESOLUTION_SHELLS= 10 8 5 3 2.3 2.0 1.7 1.5 1.3 1.2 1.1 1.0 0.90 0.80
 """)
         with open("xscale.LP", "w+") as xscale_out:
             run("xscale", stdout=xscale_out)
-        print("I scaled the data in XSCALE.")
+        log_print("I scaled the data in XSCALE.")
         
         with open('XDSCONV.INP', 'w') as xdsconv:
             xdsconv.write(f"""INPUT_FILE= {sample_movie}.ahkl
@@ -328,7 +375,7 @@ FRIEDEL'S_LAW=FALSE
 def check_space_group(sample_movie):
     with open("xdsconv.LP", "w+") as xdsconv_out:
         run("xdsconv", stdout=xdsconv_out)
-    print("I converted it for use in shelx!")
+    log_print("I converted it for use in shelx!")
 
     # Run CCP4's pointless and process its output
     run("/central/groups/NelsonLab/programs/ccp4-8.0/bin/pointless XDS_ASCII.HKL > pointless.LP",
@@ -345,17 +392,12 @@ def check_space_group(sample_movie):
                             if item.endswith(")"):
                                 sp_cleaned = item.strip(')(')
                                 pg.write(f"{sp_cleaned}\n")
-                                print(f"Possible space group: {sp_cleaned}")
+                                log_print(f"Possible space group: {sp_cleaned}")
                                 break
 
 
 
 if __name__== "__main__":
-    print(r"")
-    print(r"    ___         __       ____                               ")
-    print(r"   /   | __  __/ /_____ / __ \___________________________   ")
-    print(r"  / /| |/ / / / __/ __ / /_/ / __/__ / __/ _  / ___/ ___/hmn")
-    print(r" / ___ / /_/ / /_/ /_// /\__/ // /_// /_/  __(__  (__  )jeb ")
-    print(r"/_/  |_\____/\__/\___/_/   /_/ \___/\___/\__/\___/\___/dbe  ")
-    print(r"")
+    setup_logging(log_file="autoprocess.log", dir_name="autoprocess_logs")
+    print_bunner()
     process_movie()
