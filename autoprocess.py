@@ -4,31 +4,181 @@ Originally by Jessica Burch, modified by Dmitry Eremin
 Refactored version with improved structure and error handling
 """
 import os
+import sys
 import re
 import random
 import argparse
-from subprocess import run
+from subprocess import run, PIPE
 import logging
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 from pathlib import Path
+import numpy as np
 
 @dataclass
 class ProcessingParameters:
     """Data class to hold processing parameters"""
-    signal_pixel: int = 7
-    min_pixel: int = 7
-    background_pixel: int = 4
-    pixel_size: float = 0.028
-    wavelength: str = "0.0251"  # Fixed wavelength, not configurable via argparse
-    beam_center_x: int = 1018
-    beam_center_y: int = 1008
-    file_extension: str = ".ser"  # Default file extension
-    output_extension: str = ".img"  # Default output extension
+    microscope: str
+    rotation_axis: str
+    frame_size: int
+    signal_pixel: int
+    min_pixel: int
+    background_pixel: int
+    pixel_size: float
+    wavelength: str
+    beam_center_x: int
+    beam_center_y: int
+    file_extension: str
+    output_extension: str
+    # Add new optional parameters
+    detector_distance: Optional[str] = None
+    exposure: Optional[str] = None
+    rotation: Optional[str] = None
+
+MICROSCOPE_CONFIGS = {
+    "Arctica-CETA": ProcessingParameters(
+        microscope="Arctica-CETA",
+        rotation_axis="0 -1 0",
+        frame_size=2048,
+        signal_pixel=7,
+        min_pixel=7,
+        background_pixel=4,
+        pixel_size=0.028,
+        wavelength="0.0251",
+        beam_center_x=1018,
+        beam_center_y=1008,
+        file_extension=".ser",
+        output_extension=".img"
+    ),
+    "Arctica-EM-core": ProcessingParameters(
+        microscope="Arctica-EM-core",
+        rotation_axis="1 0 0",
+        frame_size=2048,
+        signal_pixel=7,
+        min_pixel=7,
+        background_pixel=4,
+        pixel_size=0.028,
+        wavelength="0.0251",
+        beam_center_x=1018,
+        beam_center_y=1008,
+        file_extension=".ser",
+        output_extension=".img"
+    ),
+    "Talos-Apollo": ProcessingParameters(
+        microscope="Talos-Apollo",
+        rotation_axis="1 0 0",
+        frame_size=4096,
+        signal_pixel=7,
+        min_pixel=7,
+        background_pixel=4,
+        pixel_size=0.008,
+        wavelength="0.0251",
+        beam_center_x=2040,
+        beam_center_y=2020,
+        file_extension=".mrc",
+        output_extension=".tif"
+    )
+}
+
+class FileConverter:
+    """Handles conversion between different file formats."""
+    
+    def __init__(self, params: ProcessingParameters):
+        self.params = params
+        self.current_path = Path.cwd()
+        
+    def convert_file(self, sample_movie: str, filename: str, distance: str = None, 
+                rotation: str = None, exposure: str = None) -> bool:
+        """Convert files based on extension type."""
+        if self.params.file_extension == '.mrc' and self.params.output_extension == '.tif':
+            return self._convert_mrc_to_tif(sample_movie, filename)
+        elif self.params.file_extension == '.ser' and self.params.output_extension == '.img':
+            return self._convert_ser_to_img(sample_movie, filename, distance, rotation, exposure)
+        return True  # Return True for no conversion needed
+        
+    def _convert_mrc_to_tif(self, sample_movie: str, filename: str) -> bool:
+        """Convert MRC to TIF using mrc2tif.py script."""
+        try:
+            # Get the path to mrc2tif.py relative to the original working directory
+            script_path = self.current_path / "mrc2tif.py"
+            if not script_path.exists():
+                logging.error(f"Could not find mrc2tif.py in {self.current_path}")
+                return False
+                
+            # Get the parent directory where the MRC file is located
+            mrc_folder = Path.cwd().parent  # Go up one level from 'images' directory
+                
+            # Construct the conversion command with absolute paths
+            conversion_cmd = [
+                sys.executable,  # Current Python interpreter
+                str(script_path),  # Use absolute path to mrc2tif.py
+                "--tif-name", sample_movie,
+                "--folder", str(mrc_folder),  # Point to the directory containing the MRC file
+                "--ped", "1"  # Add pedestal value
+            ]
+            
+            # Run the conversion process
+            result = run(conversion_cmd, stdout=PIPE, stderr=PIPE, text=True)
+            
+            if result.returncode != 0:
+                logging.error(f"MRC conversion failed for {filename}: {result.stderr}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error during MRC conversion for {filename}: {str(e)}")
+            return False
+        
+    def _convert_ser_to_img(self, sample_movie: str, filename: str, distance: str = None, 
+                        rotation: str = None, exposure: str = None) -> bool:
+        """Convert .ser file to .img format."""
+        try:
+            ser2smv = "/groups/NelsonLab/programs/ser2smv"
+            if not Path(ser2smv).exists():
+                logging.error(f"Could not find ser2smv converter at {ser2smv}")
+                return False
+            
+            # Only extract from filename if parameters weren't provided
+            if distance is None or rotation is None or exposure is None:
+                parts = filename.split('_')
+                if len(parts) >= 4:
+                    _, distance, rotation, exposure = parts[:4]
+                else:
+                    logging.error(f"Invalid filename format for {filename}")
+                    return False
+            
+            # Construct and run the conversion command
+            conversion_cmd = [
+                ser2smv,
+                "-P", str(self.params.pixel_size),
+                "-B", "2",
+                "-r", rotation,
+                "-w", self.params.wavelength,
+                "-d", distance,
+                "-E", exposure,
+                "-M", "200",
+                "-v",
+                "-o", f"{sample_movie}_###.img",
+                os.path.join("..", filename)
+            ]
+            
+            result = run(conversion_cmd, stdout=PIPE, stderr=PIPE, text=True)
+            
+            if result.returncode != 0:
+                logging.error(f"SER conversion failed for {filename}: {result.stderr}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error during SER conversion for {filename}: {str(e)}")
+            return False
 
 class CrystallographyProcessor:
-    def __init__(self, params: ProcessingParameters = ProcessingParameters()):
+    def __init__(self, params: ProcessingParameters):
         self.params = params
+        self.file_converter = FileConverter(params)
         self.current_path = Path.cwd()
 
     @staticmethod
@@ -102,57 +252,64 @@ class CrystallographyProcessor:
         return None
 
     def _process_movie_data(self, sample_movie: str, distance: str, 
-                          rotation: str, exposure: str, resolution_range: float,
-                          filename: str) -> None:
+                        rotation: str, exposure: str, resolution_range: float,
+                        test_resolution_range: float, filename: str) -> None:
         """Process the movie data after directories are set up."""
-        # Change to images directory
-        os.chdir(str(Path(sample_movie) / "images"))
-        
-        # Convert the file
-        self.convert_ser_to_smv(sample_movie, distance, rotation, exposure, filename)
-        image_number = str(len(os.listdir()))
-        
-        # Change to auto_process directory
-        auto_process_path = Path("..") / "auto_process"
-        os.chdir(str(auto_process_path))
-        
-        # Create XDS.INP
-        params = {
-            'distance': distance,
-            'rotation': rotation,
-            'exposure': exposure,
-            'resolution_range': resolution_range,
-            'test_resolution_range': resolution_range,
-            'image_number': image_number,
-            'background_pixel': self.params.background_pixel,
-            'signal_pixel': self.params.signal_pixel,
-            'min_pixel': self.params.min_pixel
-        }
-        
-        data_path = os.path.join(str(Path("..") / "images"), sample_movie)
-        xds_content = self.create_xds_input(data_path, params)
-        
-        with open('XDS.INP', 'w') as xds_inp:
-            xds_inp.write(xds_content)
+        try:
+            # Change to images directory first
+            image_dir = Path(sample_movie) / "images"
+            os.chdir(str(image_dir))
             
-        # Run XDS
-        with open('XDS.LP', "w+") as xds_out:
-            self.log_print(f"\n\nProcessing {sample_movie}...\n")
-            run("xds", stdout=xds_out)
+            # Handle file conversion
+            if not self.file_converter.convert_file(sample_movie, filename, distance, rotation, exposure):
+                self.log_print(f"Failed to convert {filename}. Skipping processing.")
+                os.chdir(str(self.current_path))
+                return
+                
+            # Count converted images
+            image_files = list(Path().glob(f"*{self.params.output_extension}"))
+            if not image_files:
+                self.log_print(f"No converted images found in {image_dir}")
+                os.chdir(str(self.current_path))
+                return
+                
+            image_number = str(len(image_files))
+            self.log_print(f"Found {image_number} converted images")
             
-        self.process_check(sample_movie)
-        os.chdir(str(self.current_path))
+            # Change to auto_process directory for XDS processing
+            os.chdir(str(Path("..") / "auto_process"))
+            
+            # Create and process XDS.INP
+            params = {
+                'distance': distance,
+                'rotation': rotation,
+                'exposure': exposure,
+                'resolution_range': resolution_range,
+                'test_resolution_range': test_resolution_range,
+                'image_number': image_number,
+                'background_pixel': self.params.background_pixel,
+                'signal_pixel': self.params.signal_pixel,
+                'min_pixel': self.params.min_pixel,
+            }
 
-    def convert_ser_to_smv(self, sample_movie: str, distance: str, rotation: str, 
-                          exposure: str, input_file: str) -> None:
-        """Convert .ser file to .smv format."""
-        ser2smv = "/groups/NelsonLab/programs/ser2smv"
-        run([
-            ser2smv, "-P", str(self.params.pixel_size), "-B", "2", 
-            "-r", rotation, "-w", self.params.wavelength, 
-            "-d", distance, "-E", exposure, "-M", "200", "-v", 
-            "-o", f"{sample_movie}_###.img", os.path.join("..", input_file)
-        ], stdout=open(os.devnull, 'wb'))
+            data_path = os.path.join(str(Path("..") / "images"), sample_movie)
+            xds_content = self.create_xds_input(data_path, params)
+            
+            # Write XDS.INP in current directory (auto_process)
+            with open('XDS.INP', 'w') as xds_inp:
+                xds_inp.write(xds_content)
+                
+            # Run XDS
+            with open('XDS.LP', "w+") as xds_out:
+                self.log_print(f"\nProcessing {sample_movie}...\n")
+                run("xds", stdout=xds_out)
+                
+            self.process_check(sample_movie)
+            
+        except Exception as e:
+            self.log_print(f"Error processing movie data: {str(e)}")
+        finally:
+            os.chdir(str(self.current_path))
 
     def _get_crystal_parameters(self) -> Tuple[Optional[str], Optional[str]]:
         """Extract final space group and unit cell parameters from XDS.LP using regex.
@@ -214,19 +371,67 @@ class CrystallographyProcessor:
             self.log_print(f"Skipping {filename}: unexpected filename format.")
             return None
             
-        return tuple(split[:4])  # sample_movie, distance, rotation, exposure
+        sample_movie = split[0]
+        # Use command line parameters if provided, otherwise use filename values
+        distance = self.params.detector_distance or split[1]
+        rotation = self.params.rotation or split[2]
+        exposure = self.params.exposure or split[3]
+            
+        return (sample_movie, distance, rotation, exposure)  # Return as a tuple
 
-    def calculate_resolution_range(self, distance: str) -> Optional[float]:
-        """Calculate resolution range from distance."""
-        resolution_range = float(distance) * 0.0009 - 0.1
-        if resolution_range < 0:
-            self.log_print(f"Skipping: resolution range is negative.")
+    def calculate_resolution_ranges(self, distance: str) -> Optional[Tuple[float, float]]:
+        """Calculate resolution ranges based on perpendicular distance from beam center to frame edges.
+        
+        Args:
+            distance: Detector distance in mm
+        
+        Returns:
+            Tuple of (resolution_range, test_resolution_range) or None if calculation fails
+        """
+        try:
+            # Convert detector distance to float
+            detector_distance = float(distance)
+            
+            # Calculate perpendicular distances from beam center to edges
+            edge_distances = []
+            
+            # Distance to left/right edges
+            dx_left = abs(0 - self.params.beam_center_x)
+            dx_right = abs(self.params.frame_size - self.params.beam_center_x)
+            edge_distances.append(min(dx_left, dx_right) * self.params.pixel_size)
+            
+            # Distance to top/bottom edges
+            dy_top = abs(0 - self.params.beam_center_y)
+            dy_bottom = abs(self.params.frame_size - self.params.beam_center_y)
+            edge_distances.append(min(dy_top, dy_bottom) * self.params.pixel_size)
+            
+            # Find minimum perpendicular distance to any edge
+            min_distance = min(edge_distances)
+            
+            # Calculate resolution using Bragg's law
+            # resolution = wavelength / (2 * sin(theta))
+            # where theta = arctan(radius / detector_distance) / 2
+            wavelength = float(self.params.wavelength)
+            theta = np.arctan(min_distance / detector_distance) / 2
+            max_resolution = wavelength / (2 * np.sin(theta))
+            
+            # Set resolution range slightly inside the edge
+            resolution_range = max_resolution * 0.9  # 10% buffer from edge
+            test_resolution_range = max_resolution * 1.1  # Less demanding for testing
+            
+            if resolution_range <= 0 or test_resolution_range <= 0:
+                self.log_print(f"Invalid resolution ranges calculated: {resolution_range}, {test_resolution_range}")
+                return None
+                
+            return round(resolution_range, 2), round(test_resolution_range, 2)
+            
+        except Exception as e:
+            self.log_print(f"Error calculating resolution ranges: {str(e)}")
             return None
-        return round(resolution_range, 2)
 
     def create_xds_input(self, data_path: str, params: dict) -> str:
-        """Generate XDS.INP content."""
-        return f"""JOB= XYCORR INIT COLSPOT IDXREF DEFPIX INTEGRATE CORRECT
+        """Generate XDS.INP content with support for different file extensions."""
+        template = f"""JOB= XYCORR INIT COLSPOT IDXREF DEFPIX INTEGRATE CORRECT
 !JOB=DEFPIX INTEGRATE CORRECT
 ORGX= {self.params.beam_center_x} ORGY= {self.params.beam_center_y}
 DETECTOR_DISTANCE= {float(params['distance'])}
@@ -237,14 +442,17 @@ NAME_TEMPLATE_OF_DATA_FRAMES= {data_path}_???{self.params.output_extension}
 
 BACKGROUND_RANGE=1 10
 
+!DELPHI=15
+!SPACE_GROUP_NUMBER=0
+!UNIT_CELL_CONSTANTS= 1 1 1 90 90 90
 INCLUDE_RESOLUTION_RANGE= 40 {params['resolution_range']}
 TEST_RESOLUTION_RANGE= 40 {params['test_resolution_range']}
 TRUSTED_REGION=0.0 1.2
 VALUE_RANGE_FOR_TRUSTED_DETECTOR_PIXELS=6000. 30000.
 DETECTOR= ADSC MINIMUM_VALID_PIXEL_VALUE= 1 OVERLOAD= 65000
 SENSOR_THICKNESS= 0.01
-NX= 2048 NY= 2048 QX= {self.params.pixel_size} QY= {self.params.pixel_size}
-ROTATION_AXIS=0 -1 0
+NX= {self.params.frame_size} NY= {self.params.frame_size} QX= {self.params.pixel_size} QY= {self.params.pixel_size}
+ROTATION_AXIS={self.params.rotation_axis}
 DIRECTION_OF_DETECTOR_X-AXIS=1 0 0
 DIRECTION_OF_DETECTOR_Y-AXIS=0 1 0
 INCIDENT_BEAM_DIRECTION=0 0 1
@@ -261,6 +469,7 @@ BACKGROUND_PIXEL= {params['background_pixel']}
 SIGNAL_PIXEL= {params['signal_pixel']}
 MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT= {params['min_pixel']}
 """
+        return template
 
     def process_check(self, sample_movie: str) -> Optional[bool]:
         """Check and handle processing status."""
@@ -504,9 +713,14 @@ FRIEDEL'S_LAW=FALSE
         self.log_print("I converted it for use in shelx!")
 
         # Run pointless
-        run("/central/groups/NelsonLab/programs/ccp4-8.0/bin/pointless XDS_ASCII.HKL > pointless.LP",
-            shell=True)
-
+        result = run("/central/groups/NelsonLab/programs/ccp4-8.0/bin/pointless XDS_ASCII.HKL > pointless.LP",
+            shell=True, capture_output=True)
+        
+        # Check if pointless ran successfully
+        if result.returncode != 0:
+            self.log_print("Warning: Could not run pointless, but processing completed")
+            return False  # Stop further processing
+            
         self._process_pointless_output()
         return True
     
@@ -529,7 +743,6 @@ FRIEDEL'S_LAW=FALSE
                     self.log_print(f"Possible space group: {number} - {name}")
     
     def process_movie(self) -> None:
-        """Main processing function."""
         files = os.listdir()
         
         for filename in files:
@@ -538,17 +751,21 @@ FRIEDEL'S_LAW=FALSE
                 continue
                 
             sample_movie, distance, rotation, exposure = file_info
-            resolution_range = self.calculate_resolution_range(distance)
-            if resolution_range is None:
+            ranges = self.calculate_resolution_ranges(distance)
+            if ranges is None:
                 continue
+                
+            resolution_range, test_resolution_range = ranges
                 
             self._process_single_movie(
                 sample_movie, distance, rotation, exposure, 
-                resolution_range, filename
+                resolution_range, test_resolution_range,  # Add test_resolution_range
+                filename
             )
     
     def _process_single_movie(self, sample_movie: str, distance: str, 
                             rotation: str, exposure: str, resolution_range: float,
+                            test_resolution_range: float,  # Add this parameter
                             filename: str) -> None:
         """Process a single movie file."""
         if Path(sample_movie).exists():
@@ -563,73 +780,128 @@ FRIEDEL'S_LAW=FALSE
             
         self._process_movie_data(
             sample_movie, distance, rotation, exposure,
-            resolution_range, filename
+            resolution_range, test_resolution_range,  # Add test_resolution_range
+            filename
         )
 
 def parse_arguments() -> ProcessingParameters:
     """Parse command line arguments and return ProcessingParameters instance."""
     parser = argparse.ArgumentParser(
         description='Process crystallography data files.',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter  # Shows defaults in help message
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    
-    # File extension arguments
-    parser.add_argument('--extension', 
+
+    parser.add_argument('--microscope', 
                        type=str, 
-                       default='.ser',
-                       choices=['.ser', '.mrc'],
-                       help='Input file extension to process')
+                       default='Arctica-CETA',
+                       choices=list(MICROSCOPE_CONFIGS.keys()),
+                       help='Choose instrument for default settings')
     
-    parser.add_argument('--output-extension',
+    # Add arguments for overriding default parameters
+    parser.add_argument('--rotation-axis',
                        type=str,
-                       default='.img',
-                       choices=['.img', '.tif'],
-                       help='Output file extension for processed frames')
+                       help='Override rotation axis')
     
-    # Processing parameters
+    parser.add_argument('--frame-size',
+                       type=int,
+                       help='Override frame size')
+    
     parser.add_argument('--signal-pixel',
                        type=int,
-                       default=7,
-                       help='Signal pixel value')
+                       help='Override signal pixel value')
     
     parser.add_argument('--min-pixel',
                        type=int,
-                       default=7,
-                       help='Minimum pixel value')
+                       help='Override minimum pixel value')
     
     parser.add_argument('--background-pixel',
                        type=int,
-                       default=4,
-                       help='Background pixel value')
+                       help='Override background pixel value')
     
     parser.add_argument('--pixel-size',
                        type=float,
-                       default=0.028,
-                       help='Pixel size value')
+                       help='Override pixel size value')
     
     parser.add_argument('--beam-center-x',
                        type=int,
-                       default=1018,
-                       help='Beam center X coordinate')
+                       help='Override beam center X coordinate')
     
     parser.add_argument('--beam-center-y',
                        type=int,
-                       default=1008,
-                       help='Beam center Y coordinate')
+                       help='Override beam center Y coordinate')
+    
+    parser.add_argument('--file-extension',
+                       type=str,
+                       help='Override input file extension')
+    
+    parser.add_argument('--output-extension',
+                       type=str,
+                       help='Override output file extension')
+
+    # Add new arguments for runtime parameters
+    parser.add_argument('--detector-distance',
+                       type=str,
+                       help='Override detector distance (in mm)')
+    
+    parser.add_argument('--exposure',
+                       type=str,
+                       help='Override exposure time')
+    
+    parser.add_argument('--rotation',
+                       type=str,
+                       help='Override rotation value')
 
     args = parser.parse_args()
     
-    # Create and return ProcessingParameters instance with parsed arguments
-    return ProcessingParameters(
-        signal_pixel=args.signal_pixel,
-        min_pixel=args.min_pixel,
-        background_pixel=args.background_pixel,
-        pixel_size=args.pixel_size,
-        beam_center_x=args.beam_center_x,
-        beam_center_y=args.beam_center_y,
-        file_extension=args.extension,
-        output_extension=args.output_extension
+    # Start with the default configuration for the selected microscope
+    base_params = MICROSCOPE_CONFIGS[args.microscope]
+    params = ProcessingParameters(
+        microscope=args.microscope,
+        rotation_axis=base_params.rotation_axis,
+        frame_size=base_params.frame_size,
+        signal_pixel=base_params.signal_pixel,
+        min_pixel=base_params.min_pixel,
+        background_pixel=base_params.background_pixel,
+        pixel_size=base_params.pixel_size,
+        wavelength=base_params.wavelength,
+        beam_center_x=base_params.beam_center_x,
+        beam_center_y=base_params.beam_center_y,
+        file_extension=base_params.file_extension,
+        output_extension=base_params.output_extension,
+        detector_distance=None,  # Initialize new parameters
+        exposure=None,
+        rotation=None
     )
+    
+    # Override parameters if specified in command line arguments
+    if args.rotation_axis:
+        params.rotation_axis = args.rotation_axis
+    if args.frame_size:
+        params.frame_size = args.frame_size
+    if args.signal_pixel:
+        params.signal_pixel = args.signal_pixel
+    if args.min_pixel:
+        params.min_pixel = args.min_pixel
+    if args.background_pixel:
+        params.background_pixel = args.background_pixel
+    if args.pixel_size:
+        params.pixel_size = args.pixel_size
+    if args.beam_center_x:
+        params.beam_center_x = args.beam_center_x
+    if args.beam_center_y:
+        params.beam_center_y = args.beam_center_y
+    if args.file_extension:
+        params.file_extension = args.file_extension
+    if args.output_extension:
+        params.output_extension = args.output_extension
+    if args.detector_distance:
+        params.detector_distance = args.detector_distance
+    if args.exposure:
+        params.exposure = args.exposure
+    if args.rotation:
+        params.rotation = args.rotation
+    
+    return params
 
 def main():
     # Parse arguments and create ProcessingParameters instance
@@ -640,7 +912,11 @@ def main():
     
     # Log the current parameters being used
     processor.log_print("\nUsing processing parameters:")
+    processor.log_print(f"Microscope: {params.microscope}")
+    processor.log_print(f"Rotation Axis: {params.rotation_axis}")
+    processor.log_print(f"Frame Size: {params.frame_size}")
     processor.log_print(f"File Extension: {params.file_extension}")
+    processor.log_print(f"Output Extension: {params.output_extension}")
     processor.log_print(f"Signal Pixel: {params.signal_pixel}")
     processor.log_print(f"Min Pixel: {params.min_pixel}")
     processor.log_print(f"Background Pixel: {params.background_pixel}")
