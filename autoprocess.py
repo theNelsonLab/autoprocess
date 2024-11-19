@@ -99,10 +99,23 @@ class FileConverter:
     def _convert_mrc_to_tif(self, sample_movie: str, filename: str) -> bool:
         """Convert MRC to TIF using mrc2tif.py script."""
         try:
-            # Get the path to mrc2tif.py relative to the original working directory
-            script_path = self.current_path / "mrc2tif.py"
-            if not script_path.exists():
-                logging.error(f"Could not find mrc2tif.py in {self.current_path}")
+            # Check for mrc2tif.py in both current and script directories
+            possible_locations = [
+                Path().absolute() / "mrc2tif.py",  # Current working directory
+                Path(__file__).resolve().parent / "mrc2tif.py"  # Script's directory
+            ]
+            
+            script_path = next(
+                (path for path in possible_locations if path.exists()),
+                None
+            )
+            
+            if script_path is None:
+                logging.error(
+                    "Could not find mrc2tif.py in either:\n"
+                    f"Current dir: {possible_locations[0].parent}\n"
+                    f"Script dir: {possible_locations[1].parent}"
+                )
                 return False
                 
             # Get the parent directory where the MRC file is located
