@@ -704,8 +704,7 @@ FRIEDEL'S_LAW=FALSE
         with open('XDSCONV.INP', 'w') as xdsconv:
             xdsconv.write(xdsconv_content)
 
-        success = self.check_space_group(sample_movie)
-        return False  # Return False to prevent reprocessing
+        return self.check_space_group(sample_movie)
     
     def check_space_group(self, sample_movie: str) -> bool:
         """Check space group using CCP4's pointless."""

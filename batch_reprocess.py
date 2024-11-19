@@ -23,7 +23,7 @@ class BatchParameters:
     unit_cell_beta: float
     unit_cell_gamma: float
     subfolder: str
-    microscope: str = "Arctica-CETA"
+    microscope: str
     signal_pixel: Optional[int] = None
     min_pixel: Optional[int] = None
     background_pixel: Optional[int] = None
@@ -36,56 +36,23 @@ class BatchParameters:
                 return convert_type(arg_value)
             return convert_type(input(prompt))
         
-        # Get microscope from args or use default
-        microscope = getattr(args, 'microscope', 'Arctica-CETA')
-
+        # Use args directly since we know they exist from argparse
+        microscope = args.microscope
+        
         # Get required parameters
-        space_group = get_value(
-            getattr(args, 'space_gr', None),
-            'Space group #? ',
-            int
-        )
-        
-        unit_cell_a = get_value(
-            getattr(args, 'a', None),
-            'Unit cell a? '
-        )
-        
-        unit_cell_b = get_value(
-            getattr(args, 'b', None),
-            'Unit cell b? '
-        )
-        
-        unit_cell_c = get_value(
-            getattr(args, 'c', None),
-            'Unit cell c? '
-        )
-        
-        unit_cell_alpha = get_value(
-            getattr(args, 'alpha', None),
-            'Unit cell alpha? '
-        )
-        
-        unit_cell_beta = get_value(
-            getattr(args, 'beta', None),
-            'Unit cell beta? '
-        )
-        
-        unit_cell_gamma = get_value(
-            getattr(args, 'gamma', None),
-            'Unit cell gamma? '
-        )
-        
-        subfolder = get_value(
-            getattr(args, 'folder', None),
-            'Subfolder name? ',
-            str
-        )
+        space_group = get_value(args.space_gr, 'Space group #? ', int)
+        unit_cell_a = get_value(args.a, 'Unit cell a? ')
+        unit_cell_b = get_value(args.b, 'Unit cell b? ')
+        unit_cell_c = get_value(args.c, 'Unit cell c? ')
+        unit_cell_alpha = get_value(args.alpha, 'Unit cell alpha? ')
+        unit_cell_beta = get_value(args.beta, 'Unit cell beta? ')
+        unit_cell_gamma = get_value(args.gamma, 'Unit cell gamma? ')
+        subfolder = get_value(args.folder, 'Subfolder name? ', str)
 
-        # Get processing parameters
-        signal_pixel = getattr(args, 'signal_pixel', None)
-        min_pixel = getattr(args, 'min_pixel', None)
-        background_pixel = getattr(args, 'background_pixel', None)
+        # Get processing parameters directly
+        signal_pixel = args.signal_pixel
+        min_pixel = args.min_pixel
+        background_pixel = args.background_pixel
         
         # If signal_pixel is provided but others aren't, use matching defaults
         if signal_pixel is not None:
@@ -101,7 +68,7 @@ class BatchParameters:
             unit_cell_beta=unit_cell_beta,
             unit_cell_gamma=unit_cell_gamma,
             subfolder=subfolder,
-            microscope=microscope,  # Add microscope
+            microscope=microscope,
             signal_pixel=signal_pixel,
             min_pixel=min_pixel,
             background_pixel=background_pixel
@@ -226,33 +193,31 @@ class BatchProcessor:
                 # Modify XDS.INP
                 self._modify_xds_inp(subfolder_path / "XDS.INP")
                 
-                # Process the data using autoprocess functionality
-                with open('XDS.LP', "w") as xds_out:
+                # Process the data
+                success = False
+                try:
                     self.processor.log_print(f"\nProcessing {name}...")
                     self.processor._run_xds("XDS is running...")
+
+                    # Let process_check handle everything
+                    success = self.processor.process_check(name)
                     
-                    if not Path('XPARM.XDS').exists():
-                        self.processor._handle_missing_xparm(name)
-                    elif not Path('DEFPIX.LP').exists():
-                        self.processor._handle_missing_defpix(name)
-                    elif not Path("INTEGRATE.HKL").exists():
-                        self.processor._handle_missing_integrate(name)
-                    
-                    if Path("CORRECT.LP").exists():
-                        self.processor.log_print("Successful indexing!\n")
-                        if self.processor.mosaicity(name):
-                            processed_count += 1
-                        else:
-                            error_count += 1
-                    else:
-                        error_count += 1
-                        self.processor.log_print(f"Failed to process {name}")
+                except Exception as e:
+                    self.processor.log_print(f"Error during processing: {str(e)}")
+                    success = False
+
+                if success:
+                    processed_count += 1
+                    self.processor.log_print(f"Successfully processed {name}")
+                else:
+                    error_count += 1
+                    self.processor.log_print(f"Failed to process {name}")
                 
                 # Return to original directory
                 os.chdir(original_dir)
 
             except Exception as e:
-                self.processor.log_print(f"Error processing {name}: {str(e)}")
+                self.processor.log_print(f"Error setting up processing for {name}: {str(e)}")
                 error_count += 1
                 os.chdir(self.current_path)
                 continue
@@ -328,6 +293,7 @@ def main():
     
     # Log batch parameters
     processor.processor.log_print("\nBatch reprocessing with parameters:")
+    processor.processor.log_print(f"Microscope: {batch_params.microscope}")
     processor.processor.log_print(f"Space Group: {batch_params.space_group}")
     processor.processor.log_print(f"Unit Cell Parameters:")
     processor.processor.log_print(f"  a = {batch_params.unit_cell_a}")
