@@ -161,10 +161,11 @@ class FileConverter:
                     logging.error(f"Invalid filename format for {filename}")
                     return False
             
+            scaled_pixel_size = self.params.pixel_size / 2
             # Construct and run the conversion command
             conversion_cmd = [
                 ser2smv,
-                "-P", str(self.params.pixel_size),
+                "-P", str(scaled_pixel_size),
                 "-B", "2",
                 "-r", rotation,
                 "-w", self.params.wavelength,
