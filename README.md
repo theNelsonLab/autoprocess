@@ -158,8 +158,8 @@ Contributions are welcome! Please submit issues and pull requests to the project
 This project is licensed under the MIT License.
 
 ## Acknowledgments
-- Original autoprocess.py by Jessica Burch
-- Enhanced by Dmitry Eremin
+- Original autoprocess.py by [Jessica Burch](https://github.com/jess-burch)
+- Enhanced by [Dmitry Eremin](https://github.com/mit-eremin)
 - Nelson Lab for ongoing support and development
 
 ## Version History
