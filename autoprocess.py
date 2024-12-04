@@ -50,6 +50,20 @@ MICROSCOPE_CONFIGS = {
         file_extension=".ser",
         output_extension=".img"
     ),
+    "Arctica-CETA-tif": ProcessingParameters(
+        microscope="Arctica-CETA-tif",
+        rotation_axis="-1 0 0",
+        frame_size=2048,
+        signal_pixel=7,
+        min_pixel=7,
+        background_pixel=4,
+        pixel_size=0.028,
+        wavelength="0.0251",
+        beam_center_x=1030,
+        beam_center_y=1040,
+        file_extension=".ser",
+        output_extension=".tif"
+    ),
     "Arctica-EM-core": ProcessingParameters(
         microscope="Arctica-EM-core",
         rotation_axis="1 0 0",
@@ -88,13 +102,16 @@ class FileConverter:
         self.current_path = Path.cwd()
         
     def convert_file(self, sample_movie: str, filename: str, distance: str = None, 
-                rotation: str = None, exposure: str = None) -> bool:
+                    rotation: str = None, exposure: str = None) -> bool:
         """Convert files based on extension type."""
         if self.params.file_extension == '.mrc' and self.params.output_extension == '.tif':
             return self._convert_mrc_to_tif(sample_movie, filename)
-        elif self.params.file_extension == '.ser' and self.params.output_extension == '.img':
-            return self._convert_ser_to_img(sample_movie, filename, distance, rotation, exposure)
-        return True  # Return True for no conversion needed
+        elif self.params.file_extension == '.ser':
+            if self.params.output_extension == '.tif':
+                return self._convert_ser_to_tif(sample_movie, filename)
+            elif self.params.output_extension == '.img':
+                return self._convert_ser_to_img(sample_movie, filename, distance, rotation, exposure)
+        return True
         
     def _convert_mrc_to_tif(self, sample_movie: str, filename: str) -> bool:
         """Convert MRC to TIF using mrc2tif.py script."""
@@ -177,6 +194,53 @@ class FileConverter:
                 os.path.join("..", filename)
             ]
             
+            result = run(conversion_cmd, stdout=PIPE, stderr=PIPE, text=True)
+            
+            if result.returncode != 0:
+                logging.error(f"SER conversion failed for {filename}: {result.stderr}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error during SER conversion for {filename}: {str(e)}")
+            return False
+    
+    def _convert_ser_to_tif(self, sample_movie: str, filename: str) -> bool:
+        """Convert SER to TIF using ser2tif.py script."""
+        try:
+            # Check for ser2tif.py in both current and script directories
+            possible_locations = [
+                Path().absolute() / "ser2tif.py",  # Current working directory
+                Path(__file__).resolve().parent / "ser2tif.py"  # Script's directory
+            ]
+            
+            script_path = next(
+                (path for path in possible_locations if path.exists()),
+                None
+            )
+            
+            if script_path is None:
+                logging.error(
+                    "Could not find ser2tif.py in either:\n"
+                    f"Current dir: {possible_locations[0].parent}\n"
+                    f"Script dir: {possible_locations[1].parent}"
+                )
+                return False
+                
+            # Get the parent directory where the SER file is located
+            ser_folder = Path.cwd().parent  # Go up one level from 'images' directory
+                
+            # Construct the conversion command with absolute paths
+            conversion_cmd = [
+                sys.executable,  # Current Python interpreter
+                str(script_path),  # Use absolute path to ser2tif.py
+                "--tif-name", sample_movie,
+                "--folder", str(ser_folder),  # Point to the directory containing the SER file
+                "--ped", "200"  # Add pedestal value
+            ]
+            
+            # Run the conversion process
             result = run(conversion_cmd, stdout=PIPE, stderr=PIPE, text=True)
             
             if result.returncode != 0:
