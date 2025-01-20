@@ -1,9 +1,9 @@
 import numpy as np
 import logging
-import hyperspy.api as hs
 import tifffile
 import argparse
 import warnings
+import seremi
 from pathlib import Path
 
 class SERConverter:
@@ -63,25 +63,19 @@ class SERConverter:
             images_dir.mkdir(exist_ok=True)
             
             # Load .ser movie using Hyperspy
-            ser = hs.load(str(ser_file_path))
+            with seremi.SERFile(ser_file_path) as ser:
+                frames = ser.read_all_frames()
+
             base_name = tif_name if tif_name is not None else Path(ser_file_path).stem
-            
-            # Handle single vs multi-frame data
-            if len(ser.data.shape) == 2:
-                frames = [ser.data]
-                overall_data = ser.data
-            else:
-                frames = [ser.data[i] for i in range(ser.data.shape[0])]
-                overall_data = ser.data
 
             # Log data type information
-            SERConverter.log_to_file(f"Original data type: {overall_data.dtype}", file_logger)
+            SERConverter.log_to_file(f"Original data type: {frames[0].dtype}", file_logger)
             
             overall_stats_msg = (
                 f"\nOverall statistics for {base_name}:\n"
-                f"Raw data - min: {float(np.min(overall_data)):.2f}, "
-                f"max: {float(np.max(overall_data)):.2f}, "
-                f"mean: {float(np.mean(overall_data)):.2f}"
+                f"Raw data - min: {float(np.min(frames)):.2f}, "
+                f"max: {float(np.max(frames)):.2f}, "
+                f"mean: {float(np.mean(frames)):.2f}"
             )
             SERConverter.log_to_both(overall_stats_msg, file_logger, console_logger)
             

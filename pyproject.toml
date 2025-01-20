@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyautoprocess"
+version = "0.0.1"
+authors = [
+  { name="Sam Foxman", email="sfoxman@caltech.edu" },
+  { name="Dmitry Eremin", email="eremin@caltech.edu" },
+  { name="Jessica Burch" },
+]
+description = "Automated processing and analysis of MicroED data"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "GPL-3.0-or-later"
+license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "numpy~=2.0",
+    "mrcfile~=1.5",
+    "tifffile>=2025.1.10",
+    "seremi==0.0.1",
+]
+
+[project.scripts]
+autoprocess = "pyautoprocess.autoprocess:main"
+batch_reprocess = "pyautoprocess.batch_reprocess:main"
+mrc2tif = "pyautoprocess.mrc2tif:main"
+ser2tif = "pyautoprocess.ser2tif:main"
+
+[project.urls]
+Homepage = "https://github.com/theNelsonLab/autoprocess"
+Issues = "https://github.com/theNelsonLab/autoprocess/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyautoprocess"]

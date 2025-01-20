@@ -1,10 +1,10 @@
 import numpy as np
 import logging
-import hyperspy.api as hs
 import tifffile
 import argparse
 import warnings
 from pathlib import Path
+import mrcfile
 
 class MRCConverter:
     @staticmethod
@@ -62,17 +62,17 @@ class MRCConverter:
             images_dir = mrc_dir / 'images'
             images_dir.mkdir(exist_ok=True)
             
-            # Load .mrc movie using Hyperspy
-            mrc = hs.load(str(mrc_file_path))
+            # Load .mrc movie using mrcfile package
+            with mrcfile.open(str(mrc_file_path)) as mrc:
+                # Handle single vs multi-frame data
+                if len(mrc.data.shape) == 2:
+                    frames = [mrc.data]
+                    overall_data = mrc.data
+                else:
+                    frames = [mrc.data[i] for i in range(mrc.data.shape[0])]
+                    overall_data = mrc.data
+
             base_name = tif_name if tif_name is not None else Path(mrc_file_path).stem
-            
-            # Handle single vs multi-frame data
-            if len(mrc.data.shape) == 2:
-                frames = [mrc.data]
-                overall_data = mrc.data
-            else:
-                frames = [mrc.data[i] for i in range(mrc.data.shape[0])]
-                overall_data = mrc.data
 
             # Log data type information
             MRCConverter.log_to_file(f"Original data type: {overall_data.dtype}", file_logger)
@@ -222,6 +222,7 @@ class MRCConverter:
         except Exception as e:
             MRCConverter.log_to_file(f'Error during verification for {tif_file_path}: {e}', file_logger)
             return False
+
 
 def main():
     """Main function to handle command line arguments and execute the script."""

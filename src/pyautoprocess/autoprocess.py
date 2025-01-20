@@ -29,7 +29,6 @@ class ProcessingParameters:
     beam_center_x: int
     beam_center_y: int
     file_extension: str
-    output_extension: str
     # Add new optional parameters
     detector_distance: Optional[str] = None
     exposure: Optional[str] = None
@@ -48,7 +47,6 @@ MICROSCOPE_CONFIGS = {
         beam_center_x=1018,
         beam_center_y=1008,
         file_extension=".ser",
-        output_extension=".img"
     ),
     "Arctica-CETA-tif": ProcessingParameters(
         microscope="Arctica-CETA-tif",
@@ -62,7 +60,6 @@ MICROSCOPE_CONFIGS = {
         beam_center_x=1030,
         beam_center_y=1040,
         file_extension=".ser",
-        output_extension=".tif"
     ),
     "Arctica-EM-core": ProcessingParameters(
         microscope="Arctica-EM-core",
@@ -76,7 +73,6 @@ MICROSCOPE_CONFIGS = {
         beam_center_x=1018,
         beam_center_y=1008,
         file_extension=".ser",
-        output_extension=".img"
     ),
     "Talos-Apollo": ProcessingParameters(
         microscope="Talos-Apollo",
@@ -90,7 +86,6 @@ MICROSCOPE_CONFIGS = {
         beam_center_x=2040,
         beam_center_y=2020,
         file_extension=".mrc",
-        output_extension=".tif"
     )
 }
 
@@ -104,44 +99,21 @@ class FileConverter:
     def convert_file(self, sample_movie: str, filename: str, distance: str = None, 
                     rotation: str = None, exposure: str = None) -> bool:
         """Convert files based on extension type."""
-        if self.params.file_extension == '.mrc' and self.params.output_extension == '.tif':
+        if self.params.file_extension == '.mrc':
             return self._convert_mrc_to_tif(sample_movie, filename)
         elif self.params.file_extension == '.ser':
-            if self.params.output_extension == '.tif':
-                return self._convert_ser_to_tif(sample_movie, filename)
-            elif self.params.output_extension == '.img':
-                return self._convert_ser_to_img(sample_movie, filename, distance, rotation, exposure)
+            return self._convert_ser_to_tif(sample_movie, filename)
         return True
         
     def _convert_mrc_to_tif(self, sample_movie: str, filename: str) -> bool:
         """Convert MRC to TIF using mrc2tif.py script."""
         try:
-            # Check for mrc2tif.py in both current and script directories
-            possible_locations = [
-                Path().absolute() / "mrc2tif.py",  # Current working directory
-                Path(__file__).resolve().parent / "mrc2tif.py"  # Script's directory
-            ]
-            
-            script_path = next(
-                (path for path in possible_locations if path.exists()),
-                None
-            )
-            
-            if script_path is None:
-                logging.error(
-                    "Could not find mrc2tif.py in either:\n"
-                    f"Current dir: {possible_locations[0].parent}\n"
-                    f"Script dir: {possible_locations[1].parent}"
-                )
-                return False
-                
             # Get the parent directory where the MRC file is located
             mrc_folder = Path.cwd().parent  # Go up one level from 'images' directory
                 
             # Construct the conversion command with absolute paths
             conversion_cmd = [
-                sys.executable,  # Current Python interpreter
-                str(script_path),  # Use absolute path to mrc2tif.py
+                'mrc2tif',
                 "--tif-name", sample_movie,
                 "--folder", str(mrc_folder),  # Point to the directory containing the MRC file
                 "--ped", "1"  # Add pedestal value
@@ -159,82 +131,16 @@ class FileConverter:
         except Exception as e:
             logging.error(f"Error during MRC conversion for {filename}: {str(e)}")
             return False
-        
-    def _convert_ser_to_img(self, sample_movie: str, filename: str, distance: str = None, 
-                        rotation: str = None, exposure: str = None) -> bool:
-        """Convert .ser file to .img format."""
-        try:
-            ser2smv = "/groups/NelsonLab/programs/ser2smv"
-            if not Path(ser2smv).exists():
-                logging.error(f"Could not find ser2smv converter at {ser2smv}")
-                return False
-            
-            # Only extract from filename if parameters weren't provided
-            if distance is None or rotation is None or exposure is None:
-                parts = filename.split('_')
-                if len(parts) >= 4:
-                    _, distance, rotation, exposure = parts[:4]
-                else:
-                    logging.error(f"Invalid filename format for {filename}")
-                    return False
-            
-            scaled_pixel_size = self.params.pixel_size / 2
-            # Construct and run the conversion command
-            conversion_cmd = [
-                ser2smv,
-                "-P", str(scaled_pixel_size),
-                "-B", "2",
-                "-r", rotation,
-                "-w", self.params.wavelength,
-                "-d", distance,
-                "-E", exposure,
-                "-M", "200",
-                "-v",
-                "-o", f"{sample_movie}_###.img",
-                os.path.join("..", filename)
-            ]
-            
-            result = run(conversion_cmd, stdout=PIPE, stderr=PIPE, text=True)
-            
-            if result.returncode != 0:
-                logging.error(f"SER conversion failed for {filename}: {result.stderr}")
-                return False
-                
-            return True
-            
-        except Exception as e:
-            logging.error(f"Error during SER conversion for {filename}: {str(e)}")
-            return False
     
     def _convert_ser_to_tif(self, sample_movie: str, filename: str) -> bool:
         """Convert SER to TIF using ser2tif.py script."""
-        try:
-            # Check for ser2tif.py in both current and script directories
-            possible_locations = [
-                Path().absolute() / "ser2tif.py",  # Current working directory
-                Path(__file__).resolve().parent / "ser2tif.py"  # Script's directory
-            ]
-            
-            script_path = next(
-                (path for path in possible_locations if path.exists()),
-                None
-            )
-            
-            if script_path is None:
-                logging.error(
-                    "Could not find ser2tif.py in either:\n"
-                    f"Current dir: {possible_locations[0].parent}\n"
-                    f"Script dir: {possible_locations[1].parent}"
-                )
-                return False
-                
+        try:    
             # Get the parent directory where the SER file is located
             ser_folder = Path.cwd().parent  # Go up one level from 'images' directory
                 
             # Construct the conversion command with absolute paths
             conversion_cmd = [
-                sys.executable,  # Current Python interpreter
-                str(script_path),  # Use absolute path to ser2tif.py
+                'ser2tif',
                 "--tif-name", sample_movie,
                 "--folder", str(ser_folder),  # Point to the directory containing the SER file
                 "--ped", "200"  # Add pedestal value
@@ -345,7 +251,7 @@ class CrystallographyProcessor:
                 return
                 
             # Count converted images
-            image_files = list(Path().glob(f"*{self.params.output_extension}"))
+            image_files = list(Path().glob(f"*.tif"))
             if not image_files:
                 self.log_print(f"No converted images found in {image_dir}")
                 os.chdir(str(self.current_path))
@@ -516,7 +422,7 @@ DETECTOR_DISTANCE= {float(params['distance'])}
 OSCILLATION_RANGE= {float(params['exposure']) * float(params['rotation'])}
 X-RAY_WAVELENGTH= {self.params.wavelength}
 
-NAME_TEMPLATE_OF_DATA_FRAMES= {data_path}_???{self.params.output_extension}
+NAME_TEMPLATE_OF_DATA_FRAMES= {data_path}_???.tif
 
 BACKGROUND_RANGE=1 10
 
@@ -791,7 +697,7 @@ FRIEDEL'S_LAW=FALSE
         self.log_print("I converted it for use in shelx!")
 
         # Run pointless
-        result = run("/central/groups/NelsonLab/programs/ccp4-8.0/bin/pointless XDS_ASCII.HKL > pointless.LP",
+        result = run("pointless XDS_ASCII.HKL > pointless.LP",
             shell=True, capture_output=True)
         
         # Check if pointless ran successfully
@@ -822,12 +728,14 @@ FRIEDEL'S_LAW=FALSE
     
     def process_movie(self) -> None:
         files = os.listdir()
+
+        processed_movie = False
         
         for filename in files:
             file_info = self.parse_filename(filename)
             if not file_info:
                 continue
-                
+            
             sample_movie, distance, rotation, exposure = file_info
             ranges = self.calculate_resolution_ranges(distance)
             if ranges is None:
@@ -835,11 +743,15 @@ FRIEDEL'S_LAW=FALSE
                 
             resolution_range, test_resolution_range = ranges
                 
+            processed_movie = True
             self._process_single_movie(
                 sample_movie, distance, rotation, exposure, 
                 resolution_range, test_resolution_range,  # Add test_resolution_range
                 filename
             )
+        
+        if not processed_movie:
+            self.log_print(f'Found no movies to process, searched {files}')
     
     def _process_single_movie(self, sample_movie: str, distance: str, 
                             rotation: str, exposure: str, resolution_range: float,
@@ -911,10 +823,6 @@ def parse_arguments() -> ProcessingParameters:
     parser.add_argument('--file-extension',
                        type=str,
                        help='Override input file extension')
-    
-    parser.add_argument('--output-extension',
-                       type=str,
-                       help='Override output file extension')
 
     # Add new arguments for runtime parameters
     parser.add_argument('--detector-distance',
@@ -945,7 +853,6 @@ def parse_arguments() -> ProcessingParameters:
         beam_center_x=base_params.beam_center_x,
         beam_center_y=base_params.beam_center_y,
         file_extension=base_params.file_extension,
-        output_extension=base_params.output_extension,
         detector_distance=None,  # Initialize new parameters
         exposure=None,
         rotation=None
@@ -970,8 +877,6 @@ def parse_arguments() -> ProcessingParameters:
         params.beam_center_y = args.beam_center_y
     if args.file_extension:
         params.file_extension = args.file_extension
-    if args.output_extension:
-        params.output_extension = args.output_extension
     if args.detector_distance:
         params.detector_distance = args.detector_distance
     if args.exposure:
@@ -988,13 +893,19 @@ def main():
     # Initialize processor with parsed parameters
     processor = CrystallographyProcessor(params)
     
+    # Setup logging and start processing
+    processor.setup_logging(log_file="autoprocess.log", dir_name="autoprocess_logs")
+    processor.print_banner()
+
+    # print command line arguments
+    processor.log_print(' '.join(sys.argv))
+
     # Log the current parameters being used
     processor.log_print("\nUsing processing parameters:")
     processor.log_print(f"Microscope: {params.microscope}")
     processor.log_print(f"Rotation Axis: {params.rotation_axis}")
     processor.log_print(f"Frame Size: {params.frame_size}")
     processor.log_print(f"File Extension: {params.file_extension}")
-    processor.log_print(f"Output Extension: {params.output_extension}")
     processor.log_print(f"Signal Pixel: {params.signal_pixel}")
     processor.log_print(f"Min Pixel: {params.min_pixel}")
     processor.log_print(f"Background Pixel: {params.background_pixel}")
@@ -1002,10 +913,7 @@ def main():
     processor.log_print(f"Wavelength: {params.wavelength} (fixed)")
     processor.log_print(f"Beam Center X: {params.beam_center_x}")
     processor.log_print(f"Beam Center Y: {params.beam_center_y}\n")
-    
-    # Setup logging and start processing
-    processor.setup_logging(log_file="autoprocess.log", dir_name="autoprocess_logs")
-    processor.print_banner()
+
     processor.process_movie()
 
 if __name__ == "__main__":

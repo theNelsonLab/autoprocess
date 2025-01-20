@@ -9,7 +9,7 @@ import argparse
 import shutil
 from typing import Optional
 from dataclasses import dataclass
-from autoprocess import (CrystallographyProcessor, 
+from .autoprocess import (CrystallographyProcessor, 
                         MICROSCOPE_CONFIGS)
 
 @dataclass

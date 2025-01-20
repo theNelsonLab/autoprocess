@@ -13,18 +13,7 @@ This suite consists of three Python scripts designed for automated processing an
    - Must be accessible via the `xds` command
    - Available from [xds.mr.mpg.de](https://xds.mr.mpg.de/)
 
-2. **ser2smv**: Required for .ser to .img file conversion
-   - Available from [UCLA CryoEM](https://cryoem.ucla.edu/downloads/snapshots)
-
-3. **Python Libraries**:
-   - numpy
-   - hyperspy
-   - tifffile
-   - logging
-   - pathlib
-   - dataclasses
-
-4. **Pointless**: Required for space group analysis (pointless)
+2. **Pointless**: Required for space group analysis (pointless)
 
 ## Script Details
 
@@ -47,7 +36,7 @@ Primary script for automated MicroED data processing using the XDS suite. Handle
 
 #### Usage
 ```bash
-python autoprocess.py [options]
+autoprocess [options]
 
 Options:
   --microscope MICROSCOPE    Choose instrument (default: Arctica-CETA)
@@ -64,7 +53,7 @@ Options:
   --rotation VALUE        Override rotation value
 ```
 
-### 2. batch_reprocess.py
+### 2. batch_reprocess
 
 #### Description
 Tool for batch reprocessing of previously processed data with specific space group and unit cell parameters.
@@ -77,7 +66,7 @@ Tool for batch reprocessing of previously processed data with specific space gro
 
 #### Usage
 ```bash
-python batch_reprocess.py [options]
+batch_reprocess [options]
 
 Options:
   --microscope MICROSCOPE    Choose instrument (default: Arctica-CETA)
@@ -95,7 +84,7 @@ Options:
   --background-pixel VALUE Background pixel value (max 5)
 ```
 
-### 3. mrc2tif.py
+### 3. mrc2tif
 
 #### Description
 Utility script for converting MRC movie files to TIF format with detailed verification and logging.
@@ -109,7 +98,7 @@ Utility script for converting MRC movie files to TIF format with detailed verifi
 
 #### Usage
 ```bash
-python mrc2tif.py [options]
+mrc2tif [options]
 
 Options:
   --folder PATH           Path to folder containing MRC files
