@@ -83,6 +83,9 @@ class SERConverter:
             
             # Process each frame
             for idx, frame_data in enumerate(frames):
+                # flip vertically to match previous version of autoprocess
+                frame_data = frame_data[::-1]
+
                 if raw_conversion:
                     output_data = frame_data
                 else:
