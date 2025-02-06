@@ -18,7 +18,7 @@ import numpy as np
 @dataclass
 class ProcessingParameters:
     """Data class to hold processing parameters"""
-    microscope: str
+    microscope_config: str
     rotation_axis: str
     frame_size: int
     signal_pixel: int
@@ -35,21 +35,8 @@ class ProcessingParameters:
     rotation: Optional[str] = None
 
 MICROSCOPE_CONFIGS = {
-    "Arctica-CETA": ProcessingParameters(
-        microscope="Arctica-CETA",
-        rotation_axis="0 -1 0",
-        frame_size=2048,
-        signal_pixel=7,
-        min_pixel=7,
-        background_pixel=4,
-        pixel_size=0.028,
-        wavelength="0.0251",
-        beam_center_x=1018,
-        beam_center_y=1008,
-        file_extension=".ser",
-    ),
-    "Arctica-CETA-tif": ProcessingParameters(
-        microscope="Arctica-CETA-tif",
+    "Arctica-CETA-ser-SM": ProcessingParameters(
+        microscope_config="Arctica-CETA-ser-SM",
         rotation_axis="-1 0 0",
         frame_size=2048,
         signal_pixel=7,
@@ -61,8 +48,21 @@ MICROSCOPE_CONFIGS = {
         beam_center_y=1040,
         file_extension=".ser",
     ),
-    "Arctica-EM-core": ProcessingParameters(
-        microscope="Arctica-EM-core",
+    "Arctica-CETA-mrc-SM": ProcessingParameters(
+        microscope_config="Arctica-CETA-mrc-SM",
+        rotation_axis="-1 0 0",
+        frame_size=2048,
+        signal_pixel=7,
+        min_pixel=7,
+        background_pixel=4,
+        pixel_size=0.028,
+        wavelength="0.0251",
+        beam_center_x=1030,
+        beam_center_y=1040,
+        file_extension=".mrc",
+    ),
+    "Arctica-EMcore-ser-SM": ProcessingParameters(
+        microscope_config="Arctica-EMcore-ser-SM",
         rotation_axis="1 0 0",
         frame_size=2048,
         signal_pixel=7,
@@ -70,21 +70,47 @@ MICROSCOPE_CONFIGS = {
         background_pixel=4,
         pixel_size=0.028,
         wavelength="0.0251",
-        beam_center_x=1018,
-        beam_center_y=1008,
+        beam_center_x=1030,
+        beam_center_y=1020,
         file_extension=".ser",
     ),
-    "Talos-Apollo": ProcessingParameters(
-        microscope="Talos-Apollo",
-        rotation_axis="1 0 0",
+    "Talos-Apollo-SM": ProcessingParameters(
+        microscope_config="Talos-Apollo-SM",
+        rotation_axis="-1 0 0",
+        frame_size=2048,
+        signal_pixel=7,
+        min_pixel=7,
+        background_pixel=4,
+        pixel_size=0.016,
+        wavelength="0.0251",
+        beam_center_x=1030,
+        beam_center_y=1020,
+        file_extension=".mrc",
+    ),
+    "Talos-CETA-ser-SM": ProcessingParameters(
+        microscope_config="Talos-CETA-ser-SM",
+        rotation_axis="-1 0 0",
+        frame_size=2048,
+        signal_pixel=7,
+        min_pixel=7,
+        background_pixel=4,
+        pixel_size=0.028,
+        wavelength="0.0251",
+        beam_center_x=1030,
+        beam_center_y=1020,
+        file_extension=".ser",
+    ),
+    "Talos-Apollo-P": ProcessingParameters(
+        microscope_config="Talos-Apollo-P",
+        rotation_axis="-1 0 0",
         frame_size=4096,
         signal_pixel=7,
         min_pixel=7,
         background_pixel=4,
         pixel_size=0.008,
         wavelength="0.0251",
-        beam_center_x=2040,
-        beam_center_y=2020,
+        beam_center_x=2060,
+        beam_center_y=2040,
         file_extension=".mrc",
     )
 }
@@ -761,6 +787,14 @@ FRIEDEL'S_LAW=FALSE
         if Path(sample_movie).exists():
             self.log_print(f"Already processed {filename}")
             return
+        
+        # Log processing parameters for this movie
+        self.log_print(f"\nProcessing parameters for {filename}:")
+        self.log_print(f"Detector Distance: {distance} mm")
+        self.log_print(f"Exposure Time: {exposure} s")
+        self.log_print(f"Rotation Rate: {rotation} deg/s")
+        self.log_print(f"Resolution Range: {resolution_range} Å")
+        self.log_print(f"Test Resolution Range: {test_resolution_range} Å\n")
             
         movie_dir = self._setup_movie_directories(
             sample_movie, distance, filename
@@ -781,9 +815,9 @@ def parse_arguments() -> ProcessingParameters:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
-    parser.add_argument('--microscope', 
+    parser.add_argument('--microscope-config', 
                        type=str, 
-                       default='Arctica-CETA',
+                       default='Arctica-CETA-ser-SM',
                        choices=list(MICROSCOPE_CONFIGS.keys()),
                        help='Choose instrument for default settings')
     
@@ -840,9 +874,9 @@ def parse_arguments() -> ProcessingParameters:
     args = parser.parse_args()
     
     # Start with the default configuration for the selected microscope
-    base_params = MICROSCOPE_CONFIGS[args.microscope]
+    base_params = MICROSCOPE_CONFIGS[args.microscope_config]
     params = ProcessingParameters(
-        microscope=args.microscope,
+        microscope_config=args.microscope_config,
         rotation_axis=base_params.rotation_axis,
         frame_size=base_params.frame_size,
         signal_pixel=base_params.signal_pixel,
@@ -902,7 +936,7 @@ def main():
 
     # Log the current parameters being used
     processor.log_print("\nUsing processing parameters:")
-    processor.log_print(f"Microscope: {params.microscope}")
+    processor.log_print(f"Microscope: {params.microscope_config}")
     processor.log_print(f"Rotation Axis: {params.rotation_axis}")
     processor.log_print(f"Frame Size: {params.frame_size}")
     processor.log_print(f"File Extension: {params.file_extension}")
@@ -913,6 +947,15 @@ def main():
     processor.log_print(f"Wavelength: {params.wavelength} (fixed)")
     processor.log_print(f"Beam Center X: {params.beam_center_x}")
     processor.log_print(f"Beam Center Y: {params.beam_center_y}\n")
+
+    # Log command-line overrides if provided
+    if params.detector_distance:
+        processor.log_print(f"Detector Distance: {params.detector_distance} (override)")
+    if params.exposure:
+        processor.log_print(f"Exposure Time: {params.exposure} (override)")
+    if params.rotation:
+        processor.log_print(f"Rotation Rate: {params.rotation} (override)")
+    processor.log_print("")
 
     processor.process_movie()
 

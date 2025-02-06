@@ -23,7 +23,7 @@ class BatchParameters:
     unit_cell_beta: float
     unit_cell_gamma: float
     subfolder: str
-    microscope: str
+    microscope_config: str
     signal_pixel: Optional[int] = None
     min_pixel: Optional[int] = None
     background_pixel: Optional[int] = None
@@ -37,7 +37,7 @@ class BatchParameters:
             return convert_type(input(prompt))
         
         # Use args directly since we know they exist from argparse
-        microscope = args.microscope
+        microscope_config = args.microscope_config
         
         # Get required parameters
         space_group = get_value(args.space_gr, 'Space group #? ', int)
@@ -68,7 +68,7 @@ class BatchParameters:
             unit_cell_beta=unit_cell_beta,
             unit_cell_gamma=unit_cell_gamma,
             subfolder=subfolder,
-            microscope=microscope,
+            microscope_config=microscope_config,
             signal_pixel=signal_pixel,
             min_pixel=min_pixel,
             background_pixel=background_pixel
@@ -78,7 +78,7 @@ class BatchProcessor:
     def __init__(self, batch_params: BatchParameters):
         self.params = batch_params
         # Use microscope-specific parameters
-        microscope_params = MICROSCOPE_CONFIGS[batch_params.microscope]
+        microscope_params = MICROSCOPE_CONFIGS[batch_params.microscope_config]
         self.processor = CrystallographyProcessor(microscope_params)
         self.current_path = Path.cwd()
 
@@ -235,7 +235,7 @@ def parse_arguments() -> Optional[argparse.Namespace]:
     )
     
     # Add microscope argument
-    parser.add_argument('--microscope', 
+    parser.add_argument('--microscope-config', 
                        type=str, 
                        default='Arctica-CETA',
                        choices=list(MICROSCOPE_CONFIGS.keys()),
@@ -293,7 +293,7 @@ def main():
     
     # Log batch parameters
     processor.processor.log_print("\nBatch reprocessing with parameters:")
-    processor.processor.log_print(f"Microscope: {batch_params.microscope}")
+    processor.processor.log_print(f"Microscope: {batch_params.microscope_config}")
     processor.processor.log_print(f"Space Group: {batch_params.space_group}")
     processor.processor.log_print(f"Unit Cell Parameters:")
     processor.processor.log_print(f"  a = {batch_params.unit_cell_a}")
