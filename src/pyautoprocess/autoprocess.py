@@ -4,6 +4,8 @@ Originally by Jessica Burch, modified by Dmitry Eremin
 Refactored version with improved structure and error handling
 """
 import os
+import importlib.resources
+import json
 import sys
 import re
 import random
@@ -11,14 +13,12 @@ import argparse
 from subprocess import run, PIPE
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from pathlib import Path
 import numpy as np
 
 @dataclass
 class ProcessingParameters:
-    """Data class to hold processing parameters"""
-    microscope_config: str
     rotation_axis: str
     frame_size: int
     signal_pixel: int
@@ -29,91 +29,70 @@ class ProcessingParameters:
     beam_center_x: int
     beam_center_y: int
     file_extension: str
-    # Add new optional parameters
     detector_distance: Optional[str] = None
     exposure: Optional[str] = None
     rotation: Optional[str] = None
+    microscope_config: str = "default"  # Move to end with default
 
-MICROSCOPE_CONFIGS = {
-    "Arctica-CETA-ser-SM": ProcessingParameters(
-        microscope_config="Arctica-CETA-ser-SM",
-        rotation_axis="-1 0 0",
-        frame_size=2048,
-        signal_pixel=7,
-        min_pixel=7,
-        background_pixel=4,
-        pixel_size=0.028,
-        wavelength="0.0251",
-        beam_center_x=1030,
-        beam_center_y=1040,
-        file_extension=".ser",
-    ),
-    "Arctica-CETA-mrc-SM": ProcessingParameters(
-        microscope_config="Arctica-CETA-mrc-SM",
-        rotation_axis="-1 0 0",
-        frame_size=2048,
-        signal_pixel=7,
-        min_pixel=7,
-        background_pixel=4,
-        pixel_size=0.028,
-        wavelength="0.0251",
-        beam_center_x=1030,
-        beam_center_y=1040,
-        file_extension=".mrc",
-    ),
-    "Arctica-EMcore-ser-SM": ProcessingParameters(
-        microscope_config="Arctica-EMcore-ser-SM",
-        rotation_axis="1 0 0",
-        frame_size=2048,
-        signal_pixel=7,
-        min_pixel=7,
-        background_pixel=4,
-        pixel_size=0.028,
-        wavelength="0.0251",
-        beam_center_x=1030,
-        beam_center_y=1020,
-        file_extension=".ser",
-    ),
-    "Talos-Apollo-SM": ProcessingParameters(
-        microscope_config="Talos-Apollo-SM",
-        rotation_axis="-1 0 0",
-        frame_size=2048,
-        signal_pixel=7,
-        min_pixel=7,
-        background_pixel=4,
-        pixel_size=0.016,
-        wavelength="0.0251",
-        beam_center_x=1030,
-        beam_center_y=1020,
-        file_extension=".mrc",
-    ),
-    "Talos-CETA-ser-SM": ProcessingParameters(
-        microscope_config="Talos-CETA-ser-SM",
-        rotation_axis="-1 0 0",
-        frame_size=2048,
-        signal_pixel=7,
-        min_pixel=7,
-        background_pixel=4,
-        pixel_size=0.028,
-        wavelength="0.0251",
-        beam_center_x=1030,
-        beam_center_y=1020,
-        file_extension=".ser",
-    ),
-    "Talos-Apollo-P": ProcessingParameters(
-        microscope_config="Talos-Apollo-P",
-        rotation_axis="-1 0 0",
-        frame_size=4096,
-        signal_pixel=7,
-        min_pixel=7,
-        background_pixel=4,
-        pixel_size=0.008,
-        wavelength="0.0251",
-        beam_center_x=2060,
-        beam_center_y=2040,
-        file_extension=".mrc",
-    )
-}
+class ConfigLoader:
+    def __init__(self, config_path: str = "microscope_configs.json"):
+        self.config_path = config_path
+        self.configs = self._load_configs()
+
+    def _load_configs(self) -> Dict:
+        try:
+            # Try loading from package first
+            try:
+                with importlib.resources.open_text('pyautoprocess.data', 'microscope_configs.json') as f:
+                    return json.load(f)
+            except Exception as pkg_error:
+                logging.debug(f"Could not load from package: {pkg_error}")
+                
+            # Try loading from local path
+            if Path(self.config_path).exists():
+                with open(self.config_path) as f:
+                    return json.load(f)
+                    
+            logging.warning("No config file found, using default configuration")
+            return {"default": self._get_default_config()}
+            
+        except Exception as e:
+            logging.error(f"Error loading config: {e}")
+            return {"default": self._get_default_config()}
+
+    @staticmethod
+    def _get_default_config() -> Dict:
+        """Return default configuration"""
+        return {
+            "rotation_axis": "-1 0 0",
+            "frame_size": 2048,
+            "signal_pixel": 7,
+            "min_pixel": 7,
+            "background_pixel": 4,
+            "pixel_size": 0.028,
+            "wavelength": "0.0251",
+            "beam_center_x": 1030,
+            "beam_center_y": 1040,
+            "file_extension": ".ser"
+        }
+
+    def get_config(self, microscope_name: str) -> ProcessingParameters:
+        if microscope_name not in self.configs:
+            logging.warning(f"Configuration '{microscope_name}' not found, using default")
+            config = self._get_default_config()
+        else:
+            config = self.configs[microscope_name]
+            logging.info(f"Loaded configuration for {microscope_name}")
+            
+        # Remove microscope_config from parameters if present
+        if isinstance(config, dict):
+            config = {k: v for k, v in config.items() if k != 'microscope_config'}
+            
+        return ProcessingParameters(**config, microscope_config=microscope_name)
+
+    def get_available_configs(self) -> list:
+        """Return list of available microscope configurations"""
+        return list(self.configs.keys())
 
 class FileConverter:
     """Handles conversion between different file formats."""
@@ -809,116 +788,121 @@ FRIEDEL'S_LAW=FALSE
         )
 
 def parse_arguments() -> ProcessingParameters:
-    """Parse command line arguments and return ProcessingParameters instance."""
+    # Create initial parser for microscope config
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    config_loader = ConfigLoader()
+    available_configs = config_loader.get_available_configs()
+    
+    pre_parser.add_argument('--microscope-config', 
+                           type=str, 
+                           default='default',
+                           choices=available_configs)
+    
+    # Get microscope config
+    known_args, _ = pre_parser.parse_known_args()
+    config = config_loader.get_config(known_args.microscope_config)
+    
+    # Create main parser with all arguments
     parser = argparse.ArgumentParser(
         description='Process crystallography data files.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-
+    
+    # Add all arguments including microscope config
     parser.add_argument('--microscope-config', 
                        type=str, 
-                       default='Arctica-CETA-ser-SM',
-                       choices=list(MICROSCOPE_CONFIGS.keys()),
-                       help='Choose instrument for default settings')
-    
-    # Add arguments for overriding default parameters
-    parser.add_argument('--rotation-axis',
+                       default='default',
+                       choices=available_configs,
+                       help='Choose instrument configuration')
+                       
+    parser.add_argument('--config-file',
                        type=str,
+                       default='microscope_configs.json',
+                       help='Path to microscope configuration file')
+                       
+    parser.add_argument('--rotation-axis', 
+                       type=str, 
+                       default=config.rotation_axis,
                        help='Override rotation axis')
-    
-    parser.add_argument('--frame-size',
-                       type=int,
+                       
+    parser.add_argument('--frame-size', 
+                       type=int, 
+                       default=config.frame_size,
                        help='Override frame size')
-    
-    parser.add_argument('--signal-pixel',
-                       type=int,
+                       
+    parser.add_argument('--signal-pixel', 
+                       type=int, 
+                       default=config.signal_pixel,
                        help='Override signal pixel value')
-    
-    parser.add_argument('--min-pixel',
-                       type=int,
+                       
+    parser.add_argument('--min-pixel', 
+                       type=int, 
+                       default=config.min_pixel,
                        help='Override minimum pixel value')
-    
-    parser.add_argument('--background-pixel',
-                       type=int,
+                       
+    parser.add_argument('--background-pixel', 
+                       type=int, 
+                       default=config.background_pixel,
                        help='Override background pixel value')
-    
-    parser.add_argument('--pixel-size',
-                       type=float,
+                       
+    parser.add_argument('--pixel-size', 
+                       type=float, 
+                       default=config.pixel_size,
                        help='Override pixel size value')
-    
-    parser.add_argument('--beam-center-x',
-                       type=int,
+                       
+    parser.add_argument('--wavelength', 
+                       type=str, 
+                       default=config.wavelength,
+                       help='Override wavelength value')
+                       
+    parser.add_argument('--beam-center-x', 
+                       type=int, 
+                       default=config.beam_center_x,
                        help='Override beam center X coordinate')
-    
-    parser.add_argument('--beam-center-y',
-                       type=int,
+                       
+    parser.add_argument('--beam-center-y', 
+                       type=int, 
+                       default=config.beam_center_y,
                        help='Override beam center Y coordinate')
-    
-    parser.add_argument('--file-extension',
-                       type=str,
+                       
+    parser.add_argument('--file-extension', 
+                       type=str, 
+                       default=config.file_extension,
                        help='Override input file extension')
-
-    # Add new arguments for runtime parameters
-    parser.add_argument('--detector-distance',
-                       type=str,
+                       
+    parser.add_argument('--detector-distance', 
+                       type=str, 
+                       default=config.detector_distance,
                        help='Override detector distance (in mm)')
-    
-    parser.add_argument('--exposure',
-                       type=str,
+                       
+    parser.add_argument('--exposure', 
+                       type=str, 
+                       default=config.exposure,
                        help='Override exposure time')
-    
-    parser.add_argument('--rotation',
-                       type=str,
+                       
+    parser.add_argument('--rotation', 
+                       type=str, 
+                       default=config.rotation,
                        help='Override rotation value')
 
     args = parser.parse_args()
     
-    # Start with the default configuration for the selected microscope
-    base_params = MICROSCOPE_CONFIGS[args.microscope_config]
-    params = ProcessingParameters(
-        microscope_config=args.microscope_config,
-        rotation_axis=base_params.rotation_axis,
-        frame_size=base_params.frame_size,
-        signal_pixel=base_params.signal_pixel,
-        min_pixel=base_params.min_pixel,
-        background_pixel=base_params.background_pixel,
-        pixel_size=base_params.pixel_size,
-        wavelength=base_params.wavelength,
-        beam_center_x=base_params.beam_center_x,
-        beam_center_y=base_params.beam_center_y,
-        file_extension=base_params.file_extension,
-        detector_distance=None,  # Initialize new parameters
-        exposure=None,
-        rotation=None
+    return ProcessingParameters(
+        rotation_axis=args.rotation_axis,
+        frame_size=args.frame_size,
+        signal_pixel=args.signal_pixel,
+        min_pixel=args.min_pixel,
+        background_pixel=args.background_pixel,
+        pixel_size=args.pixel_size,
+        wavelength=args.wavelength,
+        beam_center_x=args.beam_center_x,
+        beam_center_y=args.beam_center_y,
+        file_extension=args.file_extension,
+        detector_distance=args.detector_distance,
+        exposure=args.exposure,
+        rotation=args.rotation,
+        microscope_config=args.microscope_config
     )
-    
-    # Override parameters if specified in command line arguments
-    if args.rotation_axis:
-        params.rotation_axis = args.rotation_axis
-    if args.frame_size:
-        params.frame_size = args.frame_size
-    if args.signal_pixel:
-        params.signal_pixel = args.signal_pixel
-    if args.min_pixel:
-        params.min_pixel = args.min_pixel
-    if args.background_pixel:
-        params.background_pixel = args.background_pixel
-    if args.pixel_size:
-        params.pixel_size = args.pixel_size
-    if args.beam_center_x:
-        params.beam_center_x = args.beam_center_x
-    if args.beam_center_y:
-        params.beam_center_y = args.beam_center_y
-    if args.file_extension:
-        params.file_extension = args.file_extension
-    if args.detector_distance:
-        params.detector_distance = args.detector_distance
-    if args.exposure:
-        params.exposure = args.exposure
-    if args.rotation:
-        params.rotation = args.rotation
-    
-    return params
 
 def main():
     # Parse arguments and create ProcessingParameters instance

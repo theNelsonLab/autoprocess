@@ -1,0 +1,92 @@
+{
+    "Arctica-CETA-ser-SM": {
+        "microscope_config": "Arctica-CETA-ser-SM",
+        "rotation_axis": "-1 0 0",
+        "frame_size": 2048,
+        "signal_pixel": 7,
+        "min_pixel": 7,
+        "background_pixel": 4,
+        "pixel_size": 0.028,
+        "wavelength": "0.0251",
+        "beam_center_x": 1030,
+        "beam_center_y": 1040,
+        "file_extension": ".ser"
+    },
+    "Arctica-CETA-mrc-SM": {
+        "microscope_config": "Arctica-CETA-mrc-SM",
+        "rotation_axis": "-1 0 0",
+        "frame_size": 2048,
+        "signal_pixel": 7,
+        "min_pixel": 7,
+        "background_pixel": 4,
+        "pixel_size": 0.028,
+        "wavelength": "0.0251",
+        "beam_center_x": 1030,
+        "beam_center_y": 1020,
+        "file_extension": ".mrc"
+    },
+    "Arctica-EMcore-ser-SM": {
+        "microscope_config": "Arctica-EMcore-ser-SM",
+        "rotation_axis": "0 -1 0",
+        "frame_size": 2048,
+        "signal_pixel": 7,
+        "min_pixel": 7,
+        "background_pixel": 4,
+        "pixel_size": 0.028,
+        "wavelength": "0.0251",
+        "beam_center_x": 1030,
+        "beam_center_y": 1030,
+        "file_extension": ".ser"
+    },
+    "Talos-Apollo-SM": {
+        "microscope_config": "Talos-Apollo-SM",
+        "rotation_axis": "-1 0 0",
+        "frame_size": 2048,
+        "signal_pixel": 7,
+        "min_pixel": 7,
+        "background_pixel": 4,
+        "pixel_size": 0.016,
+        "wavelength": "0.0251",
+        "beam_center_x": 1030,
+        "beam_center_y": 1020,
+        "file_extension": ".mrc"
+    },
+    "Talos-CETA-ser-SM": {
+        "microscope_config": "Talos-CETA-ser-SM",
+        "rotation_axis": "-1 0 0",
+        "frame_size": 2048,
+        "signal_pixel": 7,
+        "min_pixel": 7,
+        "background_pixel": 4,
+        "pixel_size": 0.028,
+        "wavelength": "0.0251",
+        "beam_center_x": 1030,
+        "beam_center_y": 1020,
+        "file_extension": ".ser"
+    },
+    "Talos-Apollo-P": {
+        "microscope_config": "Talos-Apollo-P",
+        "rotation_axis": "-1 0 0",
+        "frame_size": 4096,
+        "signal_pixel": 4,
+        "min_pixel": 6,
+        "background_pixel": 2,
+        "pixel_size": 0.008,
+        "wavelength": "0.0251",
+        "beam_center_x": 2050,
+        "beam_center_y": 2080,
+        "file_extension": ".mrc"
+    },
+    "default": {
+        "rotation_axis": "-1 0 0",
+        "frame_size": 2048,
+        "signal_pixel": 7,
+        "min_pixel": 7,
+        "background_pixel": 4,
+        "pixel_size": 0.028,
+        "wavelength": "0.0251",
+        "beam_center_x": 1030,
+        "beam_center_y": 1040,
+        "file_extension": ".ser"
+    }
+}
