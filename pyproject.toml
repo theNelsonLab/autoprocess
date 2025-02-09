@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyautoprocess"
-version = "0.0.2"
+version = "0.1.1"
 authors = [
   { name="Sam Foxman", email="sfoxman@caltech.edu" },
   { name="Dmitry Eremin", email="eremin@caltech.edu" },
@@ -34,6 +34,7 @@ autoprocess = "pyautoprocess.autoprocess:main"
 batch_reprocess = "pyautoprocess.batch_reprocess:main"
 mrc2tif = "pyautoprocess.mrc2tif:main"
 ser2tif = "pyautoprocess.ser2tif:main"
+image_process = "pyautoprocess.image_process:main"
 
 [project.urls]
 Homepage = "https://github.com/theNelsonLab/autoprocess"

@@ -214,6 +214,20 @@ class CrystallographyProcessor:
         ]
         for line in banner_lines:
             self.log_print(line)
+    
+    def print_sub_banner(self):
+        """Print subbanner."""
+
+        version_banner = [
+            "",
+            "================================================================",
+            "                        AutoProcess 2.0                         ",
+            "================================================================",
+            ""
+        ]
+        
+        for line in version_banner:
+            self.log_print(line)
 
     def _setup_movie_directories(self, sample_movie: str, distance: str, filename: str) -> Optional[Path]:
         """Set up directory structure for movie processing."""
@@ -914,6 +928,7 @@ def main():
     # Setup logging and start processing
     processor.setup_logging(log_file="autoprocess.log", dir_name="autoprocess_logs")
     processor.print_banner()
+    processor.print_sub_banner()
 
     # print command line arguments
     processor.log_print(' '.join(sys.argv))

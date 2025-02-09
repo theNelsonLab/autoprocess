@@ -10,7 +10,7 @@ import shutil
 from typing import Optional
 from dataclasses import dataclass
 from .autoprocess import (CrystallographyProcessor, 
-                        MICROSCOPE_CONFIGS)
+                         ConfigLoader)
 
 @dataclass
 class BatchParameters:
@@ -23,7 +23,6 @@ class BatchParameters:
     unit_cell_beta: float
     unit_cell_gamma: float
     subfolder: str
-    microscope_config: str
     signal_pixel: Optional[int] = None
     min_pixel: Optional[int] = None
     background_pixel: Optional[int] = None
@@ -34,10 +33,7 @@ class BatchParameters:
         def get_value(arg_value: Optional[str], prompt: str, convert_type=float) -> any:
             if arg_value is not None:
                 return convert_type(arg_value)
-            return convert_type(input(prompt))
-        
-        # Use args directly since we know they exist from argparse
-        microscope_config = args.microscope_config
+            return convert_type(input(prompt).strip())
         
         # Get required parameters
         space_group = get_value(args.space_gr, 'Space group #? ', int)
@@ -68,7 +64,6 @@ class BatchParameters:
             unit_cell_beta=unit_cell_beta,
             unit_cell_gamma=unit_cell_gamma,
             subfolder=subfolder,
-            microscope_config=microscope_config,
             signal_pixel=signal_pixel,
             min_pixel=min_pixel,
             background_pixel=background_pixel
@@ -77,8 +72,9 @@ class BatchParameters:
 class BatchProcessor:
     def __init__(self, batch_params: BatchParameters):
         self.params = batch_params
-        # Use microscope-specific parameters
-        microscope_params = MICROSCOPE_CONFIGS[batch_params.microscope_config]
+        # Use default microscope parameters
+        config_loader = ConfigLoader()
+        microscope_params = config_loader.get_config('default')
         self.processor = CrystallographyProcessor(microscope_params)
         self.current_path = Path.cwd()
 
@@ -91,7 +87,8 @@ class BatchProcessor:
         batch_banner = [
             "",
             "================================================================",
-            "                   BATCH REPROCESSING MODE                        ",
+            "                        AutoProcess 2.0                         ",
+            "                    BATCH REPROCESSING MODE                     ",
             "================================================================",
             ""
         ]
@@ -100,14 +97,14 @@ class BatchProcessor:
             self.processor.log_print(line)
 
     def _copy_inp_files(self, source_dir: Path, target_dir: Path) -> None:
-        """Copy only .INP files from source to target directory."""
-        for item in source_dir.iterdir():
-            if item.is_file() and item.name.endswith('.INP'):
-                try:
-                    shutil.copy2(item, target_dir)
-                    self.processor.log_print(f"Copied {item.name}")
-                except Exception as e:
-                    self.processor.log_print(f"Error copying {item.name}: {str(e)}")
+        """Copy XDS.INP file from source to target directory."""
+        xds_inp = source_dir / "XDS.INP"
+        if xds_inp.is_file():
+            try:
+                shutil.copy2(xds_inp, target_dir)
+                self.processor.log_print("Copied XDS.INP")
+            except Exception as e:
+                self.processor.log_print(f"Error copying XDS.INP: {str(e)}")
 
     def _modify_xds_inp(self, xds_path: Path) -> None:
         """Modify XDS.INP with batch processing parameters."""
@@ -153,6 +150,54 @@ class BatchProcessor:
         except Exception as e:
             self.processor.log_print(f"Error modifying XDS.INP: {str(e)}")
             raise
+    
+    def _extract_processing_parameters(self, xds_path: Path) -> dict:
+        """Extract processing parameters from XDS.INP file."""
+        parameters = {}
+        try:
+            with open(xds_path, 'r') as f:
+                content = f.read()
+                
+            # Extract parameters using regular expressions
+            import re
+            
+            # Get detector distance
+            distance_match = re.search(r'DETECTOR_DISTANCE=\s*([-+]?\d*\.?\d+)', content)
+            if distance_match:
+                parameters['distance'] = distance_match.group(1)
+                
+            # Get oscillation range
+            osc_match = re.search(r'OSCILLATION_RANGE=\s*([-+]?\d*\.?\d+)', content)
+            if osc_match:
+                parameters['oscillation'] = float(osc_match.group(1))
+                
+            # Get resolution ranges
+            res_match = re.search(r'INCLUDE_RESOLUTION_RANGE=\s*\d+\s+([-+]?\d*\.?\d+)', content)
+            test_res_match = re.search(r'TEST_RESOLUTION_RANGE=\s*\d+\s+([-+]?\d*\.?\d+)', content)
+            
+            if res_match:
+                parameters['resolution_range'] = float(res_match.group(1))
+            if test_res_match:
+                parameters['test_resolution_range'] = float(test_res_match.group(1))
+                
+        except Exception as e:
+            self.processor.log_print(f"Error extracting parameters from XDS.INP: {str(e)}")
+            return {}
+            
+        return parameters
+
+    def _log_processing_parameters(self, name: str, parameters: dict) -> None:
+        """Log processing parameters."""
+        self.processor.log_print(f"\nProcessing parameters for {name}:")
+        
+        if 'distance' in parameters:
+            self.processor.log_print(f"Detector Distance: {parameters['distance']} mm")
+        if 'oscillation' in parameters:
+            self.processor.log_print(f"Oscillation Range: {parameters['oscillation']} deg")
+        if 'resolution_range' in parameters:
+            self.processor.log_print(f"Resolution Range: {parameters['resolution_range']} Å")
+        if 'test_resolution_range' in parameters:
+            self.processor.log_print(f"Test Resolution Range: {parameters['test_resolution_range']} Å\n")
 
     def process_directory(self) -> None:
         """Process all valid directories in the current path."""
@@ -165,14 +210,21 @@ class BatchProcessor:
             if not dir_path.is_dir():
                 continue
 
-            auto_process_dir = dir_path / "auto_process"
-            if not (auto_process_dir.exists() and (auto_process_dir / "XDS.INP").exists()):
-                self.processor.log_print(f"Skipping {name}: No auto_process directory or XDS.INP")
+            # Check for either auto_process or auto_process_direct
+            process_dir = None
+            for process_dirname in ["auto_process_direct", "auto_process"]:
+                potential_dir = dir_path / process_dirname
+                if potential_dir.exists() and (potential_dir / "XDS.INP").exists():
+                    process_dir = potential_dir
+                    break
+
+            if process_dir is None:
+                self.processor.log_print(f"Skipping {name}: No auto_process_direct or auto_process directory with XDS.INP")
                 skipped_count += 1
                 continue
 
             try:
-                # Create or clean subfolder at the same level as auto_process
+                # Create or clean subfolder
                 subfolder_path = dir_path / self.params.subfolder
                 if subfolder_path.exists():
                     self.processor.log_print(f"\nReprocessing {name} in existing subfolder {self.params.subfolder}")
@@ -182,45 +234,29 @@ class BatchProcessor:
                 
                 subfolder_path.mkdir(parents=True)
                 
-                # Change to subfolder directory
+                # Extract and log processing parameters before copying files
+                parameters = self._extract_processing_parameters(process_dir / "XDS.INP")
+                self._log_processing_parameters(name, parameters)
+                
+                # Change to subfolder directory and continue processing
                 original_dir = os.getcwd()
                 os.chdir(subfolder_path)
                 
-                # Copy necessary files
-                self.processor.log_print(f"Copying .INP files from {auto_process_dir}")
-                self._copy_inp_files(auto_process_dir, subfolder_path)
-                
-                # Modify XDS.INP
+                # Copy and modify XDS.INP
+                self._copy_inp_files(process_dir, subfolder_path)
                 self._modify_xds_inp(subfolder_path / "XDS.INP")
                 
                 # Process the data
-                success = False
-                try:
-                    self.processor.log_print(f"\nProcessing {name}...")
-                    self.processor._run_xds("XDS is running...")
-
-                    # Let process_check handle everything
-                    success = self.processor.process_check(name)
-                    
-                except Exception as e:
-                    self.processor.log_print(f"Error during processing: {str(e)}")
-                    success = False
-
-                if success:
-                    processed_count += 1
-                    self.processor.log_print(f"Successfully processed {name}")
-                else:
-                    error_count += 1
-                    self.processor.log_print(f"Failed to process {name}")
+                self.processor.log_print(f"\nProcessing {name}...")
+                self.processor._run_xds("XDS is running...")
+                self.processor.process_check(name)
                 
-                # Return to original directory
-                os.chdir(original_dir)
+                processed_count += 1
+                self.processor.log_print(f"Successfully processed {name}")
 
             except Exception as e:
-                self.processor.log_print(f"Error setting up processing for {name}: {str(e)}")
+                self.processor.log_print(f"Error processing {name}: {str(e)}")
                 error_count += 1
-                os.chdir(self.current_path)
-                continue
 
         # Print summary
         self.processor.log_print("\nProcessing Summary:")
@@ -233,13 +269,6 @@ def parse_arguments() -> Optional[argparse.Namespace]:
     parser = argparse.ArgumentParser(
         description='Batch reprocess crystallography data with specific space group and unit cell parameters.'
     )
-    
-    # Add microscope argument
-    parser.add_argument('--microscope-config', 
-                       type=str, 
-                       default='Arctica-CETA',
-                       choices=list(MICROSCOPE_CONFIGS.keys()),
-                       help='Choose instrument for default settings')
     
     # Unit cell and space group parameters
     parser.add_argument('--space-gr', help='Space group number')
@@ -293,7 +322,6 @@ def main():
     
     # Log batch parameters
     processor.processor.log_print("\nBatch reprocessing with parameters:")
-    processor.processor.log_print(f"Microscope: {batch_params.microscope_config}")
     processor.processor.log_print(f"Space Group: {batch_params.space_group}")
     processor.processor.log_print(f"Unit Cell Parameters:")
     processor.processor.log_print(f"  a = {batch_params.unit_cell_a}")
