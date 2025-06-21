@@ -32,7 +32,9 @@ class ProcessingParameters:
     detector_distance: Optional[str] = None
     exposure: Optional[str] = None
     rotation: Optional[str] = None
-    microscope_config: str = "default"  # Move to end with default
+    microscope_config: str = "default"
+    pointless: bool = False
+    parallel: bool = False
 
 class ConfigLoader:
     def __init__(self, config_path: str = "microscope_configs.json"):
@@ -305,7 +307,7 @@ class CrystallographyProcessor:
             # Run XDS
             with open('XDS.LP', "w+") as xds_out:
                 self.log_print(f"\nProcessing {sample_movie}...\n")
-                run("xds", stdout=xds_out)
+                self._run_xds_command(xds_out)
                 
             self.process_check(sample_movie)
             
@@ -497,11 +499,16 @@ MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT= {params['min_pixel']}
             
         return None
 
+    def _run_xds_command(self, output_file) -> None:
+        """Run XDS command, using parallel version if specified."""
+        command = "xds_par" if self.params.parallel else "xds"
+        run(command, stdout=output_file)
+
     def _run_xds(self, message: str) -> None:
         """Run XDS with logging."""
         self.log_print(message)
         with open('XDS.LP', "w+") as xds_out:
-            run("xds", stdout=xds_out)
+            self._run_xds_command(xds_out)
 
     def _handle_missing_xparm(self, sample_movie: str) -> Optional[bool]:
         """Handle missing XPARM.XDS file."""
@@ -710,21 +717,26 @@ FRIEDEL'S_LAW=FALSE
         return self.check_space_group(sample_movie)
     
     def check_space_group(self, sample_movie: str) -> bool:
-        """Check space group using CCP4's pointless."""
+        """Check space group using CCP4's pointless (only if --pointless flag is set)."""
         with open("xdsconv_ap.LP", "w+") as xdsconv_out:
             run("xdsconv", stdout=xdsconv_out)
         self.log_print("I converted it for use in shelx!")
 
-        # Run pointless
-        result = run("pointless XDS_ASCII.HKL > pointless.LP",
-            shell=True, capture_output=True)
-        
-        # Check if pointless ran successfully
-        if result.returncode != 0:
-            self.log_print("Warning: Could not run pointless, but processing completed")
-            return False  # Stop further processing
+        # Only run pointless if the flag is set
+        if self.params.pointless:
+            # Run pointless
+            result = run("pointless XDS_ASCII.HKL > pointless.LP",
+                shell=True, capture_output=True)
             
-        self._process_pointless_output()
+            # Check if pointless ran successfully
+            if result.returncode != 0:
+                self.log_print("Warning: Could not run pointless, but processing completed")
+                return False  # Stop further processing
+                
+            self._process_pointless_output()
+        else:
+            self.log_print("Pointless analysis skipped (--pointless flag not set)")
+            
         return True
     
     def _process_pointless_output(self) -> None:
@@ -899,6 +911,15 @@ def parse_arguments() -> ProcessingParameters:
                        default=config.rotation,
                        help='Override rotation value')
 
+    # New flags for pointless and parallel execution
+    parser.add_argument('--pointless', 
+                       action='store_true',
+                       help='Run pointless for space group analysis')
+                       
+    parser.add_argument('--parallel', 
+                       action='store_true',
+                       help='Use parallel XDS (xds_par) instead of serial XDS')
+
     args = parser.parse_args()
     
     return ProcessingParameters(
@@ -915,7 +936,9 @@ def parse_arguments() -> ProcessingParameters:
         detector_distance=args.detector_distance,
         exposure=args.exposure,
         rotation=args.rotation,
-        microscope_config=args.microscope_config
+        microscope_config=args.microscope_config,
+        pointless=args.pointless,
+        parallel=args.parallel
     )
 
 def main():
@@ -945,7 +968,9 @@ def main():
     processor.log_print(f"Pixel Size: {params.pixel_size}")
     processor.log_print(f"Wavelength: {params.wavelength} (fixed)")
     processor.log_print(f"Beam Center X: {params.beam_center_x}")
-    processor.log_print(f"Beam Center Y: {params.beam_center_y}\n")
+    processor.log_print(f"Beam Center Y: {params.beam_center_y}")
+    processor.log_print(f"Pointless Analysis: {'Enabled' if params.pointless else 'Disabled'}")
+    processor.log_print(f"Parallel XDS: {'Enabled (xds_par)' if params.parallel else 'Disabled (xds)'}\n")
 
     # Log command-line overrides if provided
     if params.detector_distance:
