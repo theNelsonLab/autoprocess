@@ -7,6 +7,7 @@ import seremi
 import tifffile
 from pathlib import Path
 from typing import Optional, Tuple
+from ..tvips import TvipsReader
 
 
 class FileHandler:
@@ -22,7 +23,7 @@ class FileHandler:
         print(message)
 
     def read_source_file_from_path(self, file_path: Path) -> Tuple[np.ndarray, bool]:
-        """Read source file (MRC or SER) from specific path and return data and multiframe status"""
+        """Read source file (MRC, SER, TVIPS) from specific path and return data and multiframe status"""
         file_extension = file_path.suffix.lower()
 
         if file_extension == '.mrc':
@@ -31,6 +32,10 @@ class FileHandler:
         elif file_extension == '.ser':
             with seremi.SERFile(str(file_path)) as ser:
                 frames = ser.read_all_frames()
+            data = np.array(frames)
+        elif file_extension == '.tvips':
+            with TvipsReader(file_path) as tvips:
+                frames = tvips.read_all_frames()
             data = np.array(frames)
         else:
             raise ValueError(f"Unsupported file type: {file_extension}")
@@ -191,7 +196,7 @@ class FileHandler:
                     output_data = np.maximum(frame_data + 200, 0).astype(np.uint16)
                     transformation_desc = "SER: vertical flip + pedestal +200 + clipping"
                 else:
-                    # MRC files: exact v0.1.1 workflow (uint16 cast + pedestal 1)
+                    # MRC files/TVIPS files: exact v0.1.1 workflow (uint16 cast + pedestal 1)
                     output_data = frame_data.astype(np.uint16)
                     output_data = output_data.astype(np.int32) + 1
                     output_data = output_data.astype(np.uint16)
@@ -258,7 +263,7 @@ class FileHandler:
                 expected_data = np.maximum(expected_data + 200, 0).astype(np.uint16)
                 transformation_desc = "SER: vertical flip + pedestal +200 + clipping"
             else:
-                # MRC processing: exact v0.1.1 workflow (no flip)
+                # MRC/TVIPS processing: exact v0.1.1 workflow (no flip)
                 expected_data = original_data.astype(np.uint16)
                 expected_data = expected_data.astype(np.int32) + 1
                 expected_data = expected_data.astype(np.uint16)

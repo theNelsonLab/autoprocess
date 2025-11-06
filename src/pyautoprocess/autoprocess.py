@@ -86,7 +86,7 @@ class CrystallographyProcessor:
         self.display.log_print(f"Added to processing log: {file_path.name}")
 
     def _read_source_file_from_path(self, file_path: Path) -> Tuple[np.ndarray, bool]:
-        """Read source file (MRC or SER) from specific path - delegates to FileHandler"""
+        """Read source file (MRC, SER, TVIPS) from specific path - delegates to FileHandler"""
         return self.file_handler.read_source_file_from_path(file_path)
 
     def _convert_data_to_tif(self, data: np.ndarray, is_multiframe: bool,

@@ -417,16 +417,17 @@ class PreConvertedProcessor:
             return None
 
     def _run_quality_analysis(self, sample_path: Path, base_name: str) -> Optional[DiffractionQualityAnalyzer]:
-        """Run diffraction quality analysis on the original MRC or SER file"""
+        """Run diffraction quality analysis on the original MRC, SER, or TVIPS file"""
         try:
             # Look for the original MRC or SER file in the parent directory (same level as sample folder)
             parent_dir = sample_path.parent
             mrc_files = list(parent_dir.glob(f"{base_name}_*.mrc"))
             ser_files = list(parent_dir.glob(f"{base_name}_*.ser"))
+            tvips_files = list(parent_dir.glob(f"{base_name}_*.tvips"))
 
-            source_files = mrc_files + ser_files
+            source_files = mrc_files + ser_files + tvips_files
             if not source_files:
-                self.processor.log_print("No MRC or SER file found for quality analysis")
+                self.processor.log_print("No MRC, SER, or TVIPS file found for quality analysis")
                 return None
 
             source_file = source_files[0]
@@ -468,8 +469,9 @@ class PreConvertedProcessor:
             # Look for files matching the sample name (exact match with underscore)
             mrc_files = list(parent_dir.glob(f"{sample_name}_*.mrc"))
             ser_files = list(parent_dir.glob(f"{sample_name}_*.ser"))
+            tvips_files = list(parent_dir.glob(f"{sample_name}_*.tvips"))
 
-            source_files = mrc_files + ser_files
+            source_files = mrc_files + ser_files + tvips_files
             if not source_files:
                 return None
 

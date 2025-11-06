@@ -42,5 +42,10 @@ image_process = "pyautoprocess.image_process:main"
 Homepage = "https://github.com/theNelsonLab/autoprocess"
 Issues = "https://github.com/theNelsonLab/autoprocess/issues"
 
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2"
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyautoprocess"]

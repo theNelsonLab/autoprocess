@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .tvips import TvipsReader
 import mrcfile
 import numpy as np
 import seremi
@@ -88,6 +89,18 @@ class DiffractionQualityAnalyzer:
             data = data.astype(np.float64)
 
         return data, is_multiframe
+    
+    def parse_tvips(self, tvips_file: str) -> Tuple[np.ndarray, bool]:
+        """Parse tvips with custom reader"""
+        with TvipsReader(tvips_file) as tvips:
+            frames = tvips.read_all_frames()
+            if len(frames) == 1:
+                logging.info(f'Detected single frame TVIPS')
+                return frames[0], False
+            else:
+                logging.info(f'Detected multi-frame TVIPS with {frames.shape[0]} frames')
+                return np.array(frames), True
+
 
     def parse_file(self, file_path: str) -> Tuple[np.ndarray, bool]:
         """Parse file (MRC or SER) based on file extension"""
@@ -97,6 +110,8 @@ class DiffractionQualityAnalyzer:
             return self.parse_mrc(file_path)
         elif file_path_obj.suffix.lower() == '.ser':
             return self.parse_ser(file_path)
+        elif file_path_obj.suffix.lower() == '.tvips':
+            return self.parse_tvips(file_path)
         else:
             raise ValueError(f"Unsupported file type: {file_path_obj.suffix}. Only .mrc and .ser files are supported.")
 
