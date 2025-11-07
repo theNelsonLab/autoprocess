@@ -6,9 +6,9 @@ build-backend = "hatchling.build"
 name = "pyautoprocess"
 version = "0.3.0"
 authors = [
-  { name="Sam Foxman", email="sfoxman@caltech.edu" },
   { name="Dmitry Eremin", email="eremin@caltech.edu" },
-  { name="Jessica Burch" },
+  { name="Jessica Burch", email="hosea@caltech.edu" },
+  { name="Sam Foxman", email="sfoxman@caltech.edu" },
 ]
 description = "Automated processing and analysis of MicroED data"
 readme = "README.md"
