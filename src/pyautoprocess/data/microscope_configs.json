@@ -10,7 +10,9 @@
         "wavelength": "0.0251",
         "beam_center_x": 1030,
         "beam_center_y": 1040,
-        "file_extension": ".ser"
+        "file_extension": ".ser",
+        "value_range_min": 3000.0,
+        "value_range_max": 65535.0
     },
     "Arctica-CETA-mrc-SM": {
         "microscope_config": "Arctica-CETA-mrc-SM",
@@ -23,7 +25,9 @@
         "wavelength": "0.0251",
         "beam_center_x": 1030,
         "beam_center_y": 1020,
-        "file_extension": ".mrc"
+        "file_extension": ".mrc",
+        "value_range_min": 3000.0,
+        "value_range_max": 65535.0
     },
     "Arctica-EMcore-ser-SM": {
         "microscope_config": "Arctica-EMcore-ser-SM",
@@ -36,7 +40,9 @@
         "wavelength": "0.0251",
         "beam_center_x": 1030,
         "beam_center_y": 1030,
-        "file_extension": ".ser"
+        "file_extension": ".ser",
+        "value_range_min": 6000.0,
+        "value_range_max": 30000.0
     },
     "Talos-Apollo-SM": {
         "microscope_config": "Talos-Apollo-SM",
@@ -49,7 +55,9 @@
         "wavelength": "0.0251",
         "beam_center_x": 1030,
         "beam_center_y": 1020,
-        "file_extension": ".mrc"
+        "file_extension": ".mrc",
+        "value_range_min": 10.0,
+        "value_range_max": 65535.0
     },
     "Talos-CETA-ser-SM": {
         "microscope_config": "Talos-CETA-ser-SM",
@@ -62,7 +70,9 @@
         "wavelength": "0.0251",
         "beam_center_x": 1030,
         "beam_center_y": 1020,
-        "file_extension": ".ser"
+        "file_extension": ".ser",
+        "value_range_min": 3000.0,
+        "value_range_max": 65535.0
     },
     "Talos-Apollo-P": {
         "microscope_config": "Talos-Apollo-P",
@@ -75,7 +85,9 @@
         "wavelength": "0.0251",
         "beam_center_x": 2050,
         "beam_center_y": 2080,
-        "file_extension": ".mrc"
+        "file_extension": ".mrc",
+        "value_range_min": 10.0,
+        "value_range_max": 65535.0
     },
     "default": {
         "rotation_axis": "-1 0 0",
@@ -87,6 +99,8 @@
         "wavelength": "0.0251",
         "beam_center_x": 1030,
         "beam_center_y": 1040,
-        "file_extension": ".ser"
+        "file_extension": ".ser",
+        "value_range_min": 6000.0,
+        "value_range_max": 30000.0
     }
 }

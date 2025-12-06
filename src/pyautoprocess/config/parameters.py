@@ -17,6 +17,8 @@ class ProcessingParameters:
     beam_center_x: int
     beam_center_y: int
     file_extension: str
+    value_range_min: float = 6000.0
+    value_range_max: float = 30000.0
     detector_distance: Optional[str] = None
     exposure: Optional[str] = None
     rotation: Optional[str] = None
@@ -24,6 +26,8 @@ class ProcessingParameters:
     pointless: bool = False
     parallel: bool = False
     quality_analysis: bool = False
+    friedel: bool = True
     paths: list = None
     reprocess: bool = False
     verbose: bool = False
+    res_range: Optional[float] = None

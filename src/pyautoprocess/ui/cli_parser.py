@@ -14,7 +14,7 @@ COMMON_ARGS = {
     'signal_pixel', 'min_pixel', 'background_pixel', 'pixel_size',
     'wavelength', 'beam_center_x', 'beam_center_y', 'file_extension',
     'detector_distance', 'exposure', 'rotation', 'pointless', 'parallel',
-    'dqa', 'verbose', 'paths'
+    'dqa', 'verbose', 'paths', 'res_range', 'friedel'
 }
 
 AUTOPROCESS_ONLY_ARGS = {'reprocess'}
@@ -163,6 +163,14 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           action='store_true',
                           help='Enable verbose logging for detailed conversion validation')
 
+    add_argument_if_needed('res_range', '--res-range',
+                          type=float, default=None,
+                          help='Manual resolution range in Angstroms (overrides calculated values)')
+
+    add_argument_if_needed('friedel', '--friedel',
+                          type=lambda x: x.lower() == 'true', default=True,
+                          help="Set Friedel's law for XDS (true or false, default: true)")
+
     # Tool-specific arguments
     add_argument_if_needed('reprocess', '--reprocess',
                           action='store_true',
@@ -202,6 +210,8 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['beam_center_x'] = get_arg_value('beam_center_x', config.beam_center_x)
     params['beam_center_y'] = get_arg_value('beam_center_y', config.beam_center_y)
     params['file_extension'] = get_arg_value('file_extension', config.file_extension)
+    params['value_range_min'] = get_arg_value('value_range_min', config.value_range_min)
+    params['value_range_max'] = get_arg_value('value_range_max', config.value_range_max)
     params['detector_distance'] = get_arg_value('detector_distance', config.detector_distance)
     params['exposure'] = get_arg_value('exposure', config.exposure)
     params['rotation'] = get_arg_value('rotation', config.rotation)
@@ -212,6 +222,8 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['paths'] = get_arg_value('paths', [])
     params['reprocess'] = get_arg_value('reprocess', False)
     params['verbose'] = get_arg_value('verbose', False)
+    params['res_range'] = get_arg_value('res_range', None)
+    params['friedel'] = get_arg_value('friedel', True)
 
     # Handle image_process specific parameters
     if tool == 'image_process':

@@ -432,6 +432,12 @@ class CrystallographyProcessor:
             Tuple of (resolution_range, test_resolution_range) or None if calculation fails
         """
         try:
+            # Check if manual resolution range is provided
+            if self.params.res_range is not None:
+                manual_res = self.params.res_range
+                self.log_print(f"Using manual resolution range: {manual_res} Å (overriding calculated values)")
+                return manual_res, manual_res
+
             # Convert detector distance to float
             detector_distance = float(distance)
 
@@ -1380,6 +1386,8 @@ def main():
         processor.log_print(f"Exposure Time: {params.exposure} (override)")
     if params.rotation:
         processor.log_print(f"Rotation Rate: {params.rotation} (override)")
+    if params.res_range:
+        processor.log_print(f"Resolution Range: {params.res_range} Å (manual override)")
     processor.log_print("")
 
     processor.process_movie()

@@ -44,8 +44,8 @@ BACKGROUND_RANGE={background_range}
 INCLUDE_RESOLUTION_RANGE= 40 {params['resolution_range']}
 TEST_RESOLUTION_RANGE= 40 {params['test_resolution_range']}
 TRUSTED_REGION=0.0 1.2
-VALUE_RANGE_FOR_TRUSTED_DETECTOR_PIXELS=6000. 30000.
-DETECTOR= ADSC MINIMUM_VALID_PIXEL_VALUE= 1 OVERLOAD= 65000
+VALUE_RANGE_FOR_TRUSTED_DETECTOR_PIXELS={self.params.value_range_min} {self.params.value_range_max}
+DETECTOR= ADSC MINIMUM_VALID_PIXEL_VALUE= 1 OVERLOAD= 65535
 SENSOR_THICKNESS= 0.01
 NX= {self.params.frame_size} NY= {self.params.frame_size} QX= {self.params.pixel_size} QY= {self.params.pixel_size}
 ROTATION_AXIS={self.params.rotation_axis}
@@ -57,6 +57,8 @@ POLARIZATION_PLANE_NORMAL=0 1 0
 REFINE(IDXREF)=CELL BEAM ORIENTATION AXIS
 REFINE(INTEGRATE)=DISTANCE BEAM ORIENTATION
 REFINE(CORRECT)=CELL BEAM ORIENTATION AXIS
+
+FRIEDEL'S_LAW= {'TRUE' if self.params.friedel else 'FALSE'}
 
 DATA_RANGE= {data_range}
 SPOT_RANGE= {spot_range}

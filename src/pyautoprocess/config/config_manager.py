@@ -49,7 +49,9 @@ class ConfigLoader:
             "wavelength": "0.0251",
             "beam_center_x": 1030,
             "beam_center_y": 1040,
-            "file_extension": ".ser"
+            "file_extension": ".ser",
+            "value_range_min": 6000.0,
+            "value_range_max": 30000.0
         }
 
     def get_config(self, microscope_name: str) -> ProcessingParameters:
