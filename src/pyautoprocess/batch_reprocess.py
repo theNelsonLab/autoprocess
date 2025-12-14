@@ -767,7 +767,7 @@ class BatchProcessor:
 
     def _find_autoprocess_directory(self, parent_dir: Path) -> Optional[Path]:
         """Find auto_process or auto_process_direct directory within parent directory."""
-        for process_dirname in ["auto_process_direct", "auto_process"]:
+        for process_dirname in ["auto_process", "auto_process_direct"]:
             potential_dir = parent_dir / process_dirname
             if potential_dir.exists() and (potential_dir / "XDS.INP").exists():
                 return potential_dir

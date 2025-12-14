@@ -89,6 +89,21 @@
         "value_range_min": 10.0,
         "value_range_max": 65535.0
     },
+    "F30-TVIPS-SM": {
+        "microscope_config": "F30-TVIPS-SM",
+        "rotation_axis": "-0.8290 -0.5592 0",
+        "frame_size": 2048,
+        "signal_pixel": 7,
+        "min_pixel": 7,
+        "background_pixel": 4,
+        "pixel_size": 0.031,
+        "wavelength": "0.0197",
+        "beam_center_x": 1020,
+        "beam_center_y": 1020,
+        "file_extension": ".tvips",
+        "value_range_min": 10.0,
+        "value_range_max": 65535.0
+    },
     "default": {
         "rotation_axis": "-1 0 0",
         "frame_size": 2048,

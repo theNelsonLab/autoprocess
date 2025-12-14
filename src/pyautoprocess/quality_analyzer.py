@@ -103,7 +103,7 @@ class DiffractionQualityAnalyzer:
 
 
     def parse_file(self, file_path: str) -> Tuple[np.ndarray, bool]:
-        """Parse file (MRC or SER) based on file extension"""
+        """Parse file (MRC, SER, or TVIPS) based on file extension"""
         file_path_obj = Path(file_path)
 
         if file_path_obj.suffix.lower() == '.mrc':
@@ -113,7 +113,7 @@ class DiffractionQualityAnalyzer:
         elif file_path_obj.suffix.lower() == '.tvips':
             return self.parse_tvips(file_path)
         else:
-            raise ValueError(f"Unsupported file type: {file_path_obj.suffix}. Only .mrc and .ser files are supported.")
+            raise ValueError(f"Unsupported file type: {file_path_obj.suffix}. Only .mrc, .ser, and .tvips files are supported.")
 
     def create_binary_image(self, data: np.ndarray, light_sigma: float, harsh_sigma: float,
                           threshold_std: float, ft_done: bool = False) -> np.ndarray:
@@ -245,7 +245,7 @@ class DiffractionQualityAnalyzer:
             return None
 
     def analyze_file(self, file_path: str) -> List[DiffractionResult]:
-        """Analyze MRC or SER file and return quality results for all frames"""
+        """Analyze MRC, SER, or TVIPS file and return quality results for all frames"""
         file_name = os.path.basename(file_path)
         file_type = Path(file_path).suffix.upper()
         logging.info(f"Starting diffraction quality analysis: {file_name} ({file_type})")

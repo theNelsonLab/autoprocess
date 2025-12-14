@@ -31,3 +31,4 @@ class ProcessingParameters:
     reprocess: bool = False
     verbose: bool = False
     res_range: Optional[float] = None
+    min_res: Optional[float] = None

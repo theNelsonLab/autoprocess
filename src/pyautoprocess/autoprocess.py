@@ -1153,15 +1153,96 @@ class CrystallographyProcessor:
                 self.log_print(f"Space group or unit cell not found. Cannot finish autoprocess for {sample_movie}.")
                 return None
 
+    def _read_resolution_from_xds_inp(self) -> Optional[float]:
+        """Read the high-resolution limit from INCLUDE_RESOLUTION_RANGE in XDS.INP.
+
+        Returns:
+            The high-resolution value (second number) from INCLUDE_RESOLUTION_RANGE,
+            or None if not found or cannot be parsed.
+        """
+        xds_inp_path = Path("XDS.INP")
+        if not xds_inp_path.exists():
+            return None
+
+        try:
+            with open(xds_inp_path, 'r') as f:
+                for line in f:
+                    if line.strip().startswith("INCLUDE_RESOLUTION_RANGE="):
+                        # Parse line like: "INCLUDE_RESOLUTION_RANGE= 40 0.78"
+                        parts = line.split('=')[1].strip().split()
+                        if len(parts) >= 2:
+                            # Return the second value (high-resolution limit)
+                            return float(parts[1])
+        except Exception as e:
+            self.log_print(f"Warning: Could not parse INCLUDE_RESOLUTION_RANGE from XDS.INP: {e}")
+            return None
+
+        return None
+
+    def _get_commented_resolution_shells(self, include_resolution: float) -> str:
+        """Generate RESOLUTION_SHELLS line with appropriate shells commented out.
+
+        Shells are commented out (prefixed with !) if they are better (smaller) than
+        the include_resolution value. The include_resolution value itself is included.
+
+        Args:
+            include_resolution: The high-resolution limit from INCLUDE_RESOLUTION_RANGE (in Å)
+
+        Returns:
+            String with resolution shells, with finer shells commented out as needed
+
+        Example:
+            If include_resolution = 0.76, then 0.75, 0.70, 0.65, 0.60 will be commented.
+            If include_resolution = 1.1, then 1.1 is included, 1.0, 0.90, 0.80, etc. are commented.
+            If include_resolution = 1.0, then 1.0 is included, 0.90, 0.80, etc. are commented.
+        """
+        # Predefined shell list from low to high resolution (worst to best)
+        # Extended with finer shells that are always commented out
+        shells = [10, 8, 5, 3, 2.3, 2.0, 1.7, 1.5, 1.3, 1.2, 1.1, 1.0, 0.90, 0.80, 0.75, 0.70, 0.65, 0.60]
+
+        # Build the shell list with comments
+        shell_strings = []
+        for shell in shells:
+            if shell >= include_resolution:
+                # This shell is worse than or equal to our limit - include it
+                shell_strings.append(str(shell))
+            else:
+                # This shell is better than our limit - comment it out
+                shell_strings.append(f"!{shell}")
+
+        return " ".join(shell_strings)
+
     def scale_conv(self, sample_movie: str) -> bool:
         """Perform scaling and conversion."""
         if not Path("CORRECT.LP").exists():
             return False
 
+        # Determine the resolution limit for XSCALE
+        # Priority: 1) --min-res argument, 2) resolution_range from XDS processing
+        if self.params.min_res is not None:
+            resolution_limit = self.params.min_res
+            self.log_print(f"Using manual minimum resolution for XSCALE: {resolution_limit} Å")
+        elif self.params.res_range is not None:
+            # If res_range was manually set, use it
+            resolution_limit = self.params.res_range
+            self.log_print(f"Using resolution range from --res-range for XSCALE: {resolution_limit} Å")
+        else:
+            # Try to read from XDS.INP
+            resolution_limit = self._read_resolution_from_xds_inp()
+            if resolution_limit is None:
+                self.log_print("Warning: Could not determine resolution limit, using default shells")
+                resolution_shells = "10 8 5 3 2.3 2.0 1.7 1.5 1.3 1.2 1.1 1.0 0.90 0.80 !0.75 !0.70 !0.65 !0.60"
+            else:
+                self.log_print(f"Using resolution from XDS.INP for XSCALE: {resolution_limit} Å")
+
+        # Generate commented resolution shells if we have a valid limit
+        if resolution_limit is not None:
+            resolution_shells = self._get_commented_resolution_shells(resolution_limit)
+
         # XSCALE processing
         xscale_content = f"""OUTPUT_FILE= {sample_movie}.ahkl
 INPUT_FILE= XDS_ASCII.HKL
-RESOLUTION_SHELLS= 10 8 5 3 2.3 2.0 1.7 1.5 1.3 1.2 1.1 1.0 0.90 0.80
+RESOLUTION_SHELLS= {resolution_shells}
 """
         with open('XSCALE.INP', 'w') as xscale:
             xscale.write(xscale_content)
@@ -1226,7 +1307,7 @@ FRIEDEL'S_LAW=FALSE
         files_to_process = self._get_files_to_process()
 
         if not files_to_process:
-            self.log_print("No .mrc or .ser files found to process.")
+            self.log_print("No .mrc, .ser, or .tvips files found to process.")
             return
 
         processed_movie = False
@@ -1274,7 +1355,7 @@ FRIEDEL'S_LAW=FALSE
             # No paths specified, use current directory (legacy behavior)
             files = os.listdir('.')
             for filename in files:
-                if filename.endswith(('.mrc', '.ser')):
+                if filename.endswith(('.mrc', '.ser', '.tvips')):
                     files_to_process.append(os.path.abspath(filename))
             return files_to_process
 
@@ -1284,16 +1365,16 @@ FRIEDEL'S_LAW=FALSE
 
             if path.is_file():
                 # Single file specified
-                if path.suffix.lower() in ['.mrc', '.ser']:
+                if path.suffix.lower() in ['.mrc', '.ser', '.tvips']:
                     files_to_process.append(str(path))
                     self.log_print(f"Added file: {path}")
                 else:
-                    self.log_print(f"Warning: {path} is not a .mrc or .ser file")
+                    self.log_print(f"Warning: {path} is not a .mrc, .ser, or .tvips file")
 
             elif path.is_dir():
-                # Directory specified, find all .mrc/.ser files
+                # Directory specified, find all .mrc/.ser/.tvips files
                 found_files = []
-                for ext in ['*.mrc', '*.ser']:
+                for ext in ['*.mrc', '*.ser', '*.tvips']:
                     found_files.extend(path.glob(ext))
 
                 if found_files:
@@ -1301,7 +1382,7 @@ FRIEDEL'S_LAW=FALSE
                         files_to_process.append(str(file_path))
                     self.log_print(f"Found {len(found_files)} files in {path}")
                 else:
-                    self.log_print(f"Warning: No .mrc or .ser files found in {path}")
+                    self.log_print(f"Warning: No .mrc, .ser, or .tvips files found in {path}")
 
             else:
                 self.log_print(f"Warning: Path does not exist: {path}")

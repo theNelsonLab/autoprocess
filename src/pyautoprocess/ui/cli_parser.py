@@ -14,7 +14,7 @@ COMMON_ARGS = {
     'signal_pixel', 'min_pixel', 'background_pixel', 'pixel_size',
     'wavelength', 'beam_center_x', 'beam_center_y', 'file_extension',
     'detector_distance', 'exposure', 'rotation', 'pointless', 'parallel',
-    'dqa', 'verbose', 'paths', 'res_range', 'friedel'
+    'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel'
 }
 
 AUTOPROCESS_ONLY_ARGS = {'reprocess'}
@@ -79,7 +79,7 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     # Positional arguments (always included)
     if 'paths' in args_to_include:
         help_text = {
-            'autoprocess': 'Path(s) to process: single .mrc/.ser file, folder containing files, or multiple files/folders. If not specified, processes all files in current directory.',
+            'autoprocess': 'Path(s) to process: single .mrc/.ser/.tvips file, folder containing files, or multiple files/folders. If not specified, processes all files in current directory.',
             'image_process': 'Path(s) to process: folders containing pre-converted images. If not specified, processes all suitable folders in current directory.'
         }
         parser.add_argument('paths',
@@ -166,6 +166,10 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     add_argument_if_needed('res_range', '--res-range',
                           type=float, default=None,
                           help='Manual resolution range in Angstroms (overrides calculated values)')
+
+    add_argument_if_needed('min_res', '--min-res',
+                          type=float, default=None,
+                          help='Minimum resolution for XSCALE in Angstroms (overrides INCLUDE_RESOLUTION_RANGE for scaling)')
 
     add_argument_if_needed('friedel', '--friedel',
                           type=lambda x: x.lower() == 'true', default=True,

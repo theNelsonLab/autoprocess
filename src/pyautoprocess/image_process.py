@@ -29,8 +29,9 @@ class ExtendedProcessingParameters(ProcessingParameters):
 class PreConvertedProcessor:
     """Process pre-converted crystallography images with backup functionality"""
 
-    OUTPUT_FOLDER = "auto_process_direct"
+    OUTPUT_FOLDER = "auto_process"
     BACKUP_FOLDER = "processing_backups"
+    LEGACY_FOLDER = "auto_process_direct"  # For backward compatibility
 
     def __init__(self, params: ProcessingParameters):
         self.params = params
@@ -166,7 +167,7 @@ class PreConvertedProcessor:
             image_count, base_name = result
             image_number = str(image_count)
 
-            # Process in auto_process_direct directory
+            # Process in auto_process directory
             process_dir = sample_path / self.OUTPUT_FOLDER
             with self._working_directory(process_dir):
                 self._process_with_parameters(sample_path, image_number, base_name)
@@ -599,26 +600,184 @@ class PreConvertedProcessor:
         except Exception as e:
             self.processor.log_print(f"Warning: Could not log XDS parameters: {str(e)}")
 
+    def _migrate_legacy_folder(self, sample_path: Path) -> None:
+        """
+        Migrate auto_process_direct to auto_process with comprehensive error handling.
+        Handles all realistic backward compatibility scenarios gracefully.
+        """
+        legacy_dir = sample_path / self.LEGACY_FOLDER
+        current_dir = sample_path / self.OUTPUT_FOLDER
+
+        # Case 1: Only legacy folder exists
+        if legacy_dir.exists() and not current_dir.exists():
+            # Check if it has content
+            try:
+                dir_contents = list(legacy_dir.iterdir())
+            except PermissionError:
+                self.processor.log_print(
+                    f"Warning: Cannot access {self.LEGACY_FOLDER}/ (permission denied)"
+                )
+                self.processor.log_print(f"Creating new {self.OUTPUT_FOLDER}/ folder instead")
+                return
+
+            if not dir_contents:
+                # Empty - just remove
+                try:
+                    shutil.rmtree(legacy_dir)
+                    self.processor.log_print(f"Removed empty {self.LEGACY_FOLDER}/")
+                except (PermissionError, OSError) as e:
+                    self.processor.log_print(
+                        f"Warning: Could not remove empty {self.LEGACY_FOLDER}/: {e}"
+                    )
+                    self.processor.log_print(f"Proceeding with new {self.OUTPUT_FOLDER}/ folder")
+                return
+
+            # Has content - try to rename
+            has_xds = (legacy_dir / "XDS.INP").exists()
+            if has_xds:
+                self.processor.log_print(
+                    f"Migrating {self.LEGACY_FOLDER}/ → {self.OUTPUT_FOLDER}/"
+                )
+                try:
+                    legacy_dir.rename(current_dir)
+                    self.processor.log_print("Migration complete")
+                    return
+                except (PermissionError, OSError) as e:
+                    self.processor.log_print(
+                        f"Warning: Cannot migrate {self.LEGACY_FOLDER}/: {e}"
+                    )
+                    self.processor.log_print(f"Creating new {self.OUTPUT_FOLDER}/ folder instead")
+                    self.processor.log_print(
+                        f"Note: Your old results are still in {self.LEGACY_FOLDER}/"
+                    )
+                    return
+
+        # Case 2: Both folders exist
+        elif legacy_dir.exists() and current_dir.exists():
+            self.processor.log_print(
+                f"Found both {self.OUTPUT_FOLDER}/ and {self.LEGACY_FOLDER}/"
+            )
+
+            # Check what's in each
+            try:
+                ap_has_xds = (current_dir / "XDS.INP").exists()
+                apd_has_xds = (legacy_dir / "XDS.INP").exists()
+            except PermissionError:
+                self.processor.log_print(
+                    "Warning: Permission issues accessing folders"
+                )
+                self.processor.log_print(f"Using {self.OUTPUT_FOLDER}/, leaving {self.LEGACY_FOLDER}/ in place")
+                return
+
+            if ap_has_xds and apd_has_xds:
+                # Both have data - backup both
+                self.processor.log_print(
+                    "Both folders contain processing data"
+                )
+                self.processor.log_print(
+                    f"Backing up legacy {self.LEGACY_FOLDER}/ folder"
+                )
+
+                # Backup auto_process_direct separately
+                try:
+                    backup_legacy = self._create_backup(
+                        legacy_dir,
+                        sample_path.name + "_legacy_direct"
+                    )
+                    if backup_legacy:
+                        shutil.rmtree(legacy_dir)
+                        self.processor.log_print(
+                            f"Legacy {self.LEGACY_FOLDER}/ backed up and removed"
+                        )
+                    else:
+                        self.processor.log_print(
+                            f"Could not backup {self.LEGACY_FOLDER}/, leaving it in place"
+                        )
+                except (PermissionError, OSError) as e:
+                    self.processor.log_print(
+                        f"Warning: Could not handle {self.LEGACY_FOLDER}/: {e}"
+                    )
+                    self.processor.log_print(
+                        f"Leaving {self.LEGACY_FOLDER}/ in place for manual cleanup"
+                    )
+                # Continue with auto_process/ (normal backup logic will handle)
+                return
+
+            elif not ap_has_xds and apd_has_xds:
+                # Only legacy has data - remove empty auto_process, rename legacy
+                self.processor.log_print(
+                    f"{self.OUTPUT_FOLDER}/ is empty, {self.LEGACY_FOLDER}/ has data"
+                )
+                try:
+                    shutil.rmtree(current_dir)
+                    legacy_dir.rename(current_dir)
+                    self.processor.log_print(
+                        f"Migrated {self.LEGACY_FOLDER}/ → {self.OUTPUT_FOLDER}/"
+                    )
+                except (PermissionError, OSError) as e:
+                    self.processor.log_print(
+                        f"Warning: Could not migrate: {e}"
+                    )
+                    self.processor.log_print(f"Proceeding with existing {self.OUTPUT_FOLDER}/")
+                return
+
+            elif ap_has_xds and not apd_has_xds:
+                # Only auto_process has data - remove empty legacy
+                self.processor.log_print(
+                    f"{self.OUTPUT_FOLDER}/ has data, {self.LEGACY_FOLDER}/ is empty"
+                )
+                try:
+                    shutil.rmtree(legacy_dir)
+                    self.processor.log_print(f"Removed empty {self.LEGACY_FOLDER}/")
+                except (PermissionError, OSError) as e:
+                    self.processor.log_print(
+                        f"Warning: Could not remove {self.LEGACY_FOLDER}/: {e}"
+                    )
+                return
+
+            else:
+                # Both empty
+                self.processor.log_print("Both folders are empty, removing both")
+                try:
+                    shutil.rmtree(current_dir)
+                    shutil.rmtree(legacy_dir)
+                except (PermissionError, OSError) as e:
+                    self.processor.log_print(
+                        f"Warning: Could not remove folders: {e}"
+                    )
+                return
+
     def process_folder(self, sample_path: Path) -> bool:
         """Process a single folder containing pre-converted images"""
         try:
+            # Handle legacy folder migration first
+            self._migrate_legacy_folder(sample_path)
+
             # Setup processing directory
             process_dir = sample_path / self.OUTPUT_FOLDER
 
             # Handle existing directory - always create backup and proceed (this is a reprocessing tool)
             if process_dir.exists():
                 self.processor.log_print(f"\nFound existing processing for {sample_path.name}")
-                # Create backup before proceeding
-                backup_dir = self._create_backup(process_dir, sample_path.name)
 
-                # Verify backup was successful by checking for XDS.INP
-                if backup_dir and (backup_dir / "XDS.INP").exists():
-                    # Remove existing directory after successful backup
+                # Check if directory is empty
+                dir_contents = list(process_dir.iterdir())
+                if not dir_contents:
+                    # Directory is empty, just remove it and proceed
+                    self.processor.log_print("Existing directory is empty, removing it")
                     shutil.rmtree(process_dir)
-                    self.processor.log_print(f"Reprocessing {sample_path.name}")
                 else:
-                    self.processor.log_print("Failed to create backup, skipping processing")
-                    return False
+                    # Directory has contents, create backup before proceeding
+                    backup_dir = self._create_backup(process_dir, sample_path.name)
+
+                    # Verify backup was successful by checking for XDS.INP
+                    if backup_dir and (backup_dir / "XDS.INP").exists():
+                        # Remove existing directory after successful backup
+                        shutil.rmtree(process_dir)
+                        self.processor.log_print(f"Reprocessing {sample_path.name}")
+                    else:
+                        self.processor.log_print("Failed to create backup, skipping processing")
+                        return False
             else:
                 self.processor.log_print(f"\nProcessing {sample_path.name}")
 
