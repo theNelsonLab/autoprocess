@@ -91,7 +91,7 @@
     },
     "F30-TVIPS-SM": {
         "microscope_config": "F30-TVIPS-SM",
-        "rotation_axis": "-0.8290 -0.5592 0",
+        "rotation_axis": "-0.8290 0.5592 0",
         "frame_size": 2048,
         "signal_pixel": 7,
         "min_pixel": 7,
