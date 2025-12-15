@@ -9,6 +9,7 @@ This package provides a comprehensive suite of tools for automated MicroED data 
 - **batch_reprocess**: Batch reprocessing tool with specific space group and unit cell parameters
 - **mrc2tif**: Utility for converting MRC files to TIF format
 - **ser2tif**: Utility for converting SER files to TIF format
+- **tvips2tif**: Utility for converting TVIPS files to TIF format
 
 ## Installation
 
@@ -50,7 +51,7 @@ pip install .
 Primary tool for automated MicroED data processing using the XDS suite. Handles image conversion, indexing, integration, space group analysis, and scaling with intelligent parameter optimization.
 
 #### Key Features
-- **File Processing**: Processes .mrc/.ser files from specified paths or current directory
+- **File Processing**: Processes .mrc/.ser/.tvips files from specified paths or current directory
 - **Automatic Image Conversion**: Converts source files to XDS-compatible TIF format with validation
 - **Diffraction Quality Analysis**: Optional frame quality assessment and intelligent frame selection (--dqa)
 - **Dynamic XDS Optimization**: Automatic parameter adjustment for indexing, integration, and scaling
@@ -66,7 +67,7 @@ Primary tool for automated MicroED data processing using the XDS suite. Handles 
 autoprocess [paths] [options]
 
 Positional Arguments:
-  paths                    Path(s) to process: single .mrc/.ser file, folder containing files,
+  paths                    Path(s) to process: single .mrc/.ser/.tvips file, folder containing files,
                           or multiple files/folders. If not specified, processes all files
                           in current directory.
 
@@ -97,6 +98,13 @@ Experimental Parameters Override:
   --detector-distance VALUE  Override detector distance (in mm)
   --exposure VALUE           Override exposure time
   --rotation VALUE          Override rotation value
+
+Resolution Control:
+  --res-range VALUE         Manual resolution range in Angstroms (overrides calculated values)
+  --min-res VALUE          Minimum resolution for XSCALE in Angstroms (independent from XDS)
+
+Advanced XDS Parameters:
+  --friedel BOOL           Set Friedel's law for XDS (true or false, default: true)
 ```
 
 
@@ -155,6 +163,13 @@ Experimental Parameters Override:
   --detector-distance VALUE  Override detector distance (in mm)
   --exposure VALUE           Override exposure time
   --rotation VALUE          Override rotation value
+
+Resolution Control:
+  --res-range VALUE         Manual resolution range in Angstroms (overrides calculated values)
+  --min-res VALUE          Minimum resolution for XSCALE in Angstroms (independent from XDS)
+
+Advanced XDS Parameters:
+  --friedel BOOL           Set Friedel's law for XDS (true or false, default: true)
 
 Examples:
   # Process TIF images in current directory
@@ -299,6 +314,44 @@ Examples:
   ser2tif --recursive --raw --folder /microscopy/data
 ```
 
+### 6. tvips2tif
+
+#### Description
+Utility for converting TVIPS movie files to TIF format with comprehensive verification and data integrity checking.
+
+#### Key Features
+- **TVIPS Format Support**: Native TVIPS file format support
+- **Frame Extraction**: Automatic individual frame extraction and processing
+- **Data Integrity**: Comprehensive conversion verification and validation
+- **Pedestal Support**: Optional pedestal value addition with validation
+- **Raw Conversion**: Raw data conversion mode preserving original formats (--raw)
+- **Detailed Logging**: Split logging system with comprehensive statistics
+- **Recursive Processing**: Search subdirectories for TVIPS files (--recursive)
+- **Custom Naming**: Flexible output file naming control
+- **Directory Management**: Automatic 'images' subdirectory organization
+
+#### Usage
+```bash
+tvips2tif [options]
+
+Options:
+  --folder PATH           Path to folder containing TVIPS files (default: current directory)
+  --ped VALUE            Pedestal value to add to each pixel (default: 0)
+  --tif-name NAME        Base name for output TIF files (default: same as TVIPS filename)
+  --recursive            Search for TVIPS files recursively in subdirectories
+  --raw                  Convert data without any type conversion or modifications
+
+Examples:
+  # Convert all TVIPS files in current directory
+  tvips2tif
+
+  # Convert with pedestal and custom naming
+  tvips2tif --ped 100 --tif-name converted_frames --folder /data/tvips_files
+
+  # Recursive search with raw conversion
+  tvips2tif --recursive --raw --folder /microscopy/data
+```
+
 ## File Naming Convention
 ### For .ser Files
 ```
@@ -348,6 +401,13 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.3.2**: Resolution control and TVIPS support
+  - Added dynamic XSCALE resolution shell commenting with --min-res argument
+  - Enabled TVIPS file format support throughout processing pipeline
+  - Added F30-TVIPS-SM microscope configuration
+  - Fixed empty auto_process folder backup failures
+  - Unified auto_process folder structure with backward compatibility migration
+  - Added --friedel parameter for Friedel's law control
 - **v0.2.0**: Major refactoring and DQA implementation
   - Implemented quality analysis and diffraction assessment
   - Added modular architecture with separate core, config, and UI modules
