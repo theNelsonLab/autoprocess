@@ -92,12 +92,11 @@ class MRCConverter:
                 if raw_conversion:
                     output_data = frame_data
                 else:
-                    output_data = frame_data.astype(np.uint16)
                     if not MRCConverter.check_data_range(frame_data, pedestal, file_logger):
                         all_frames_verified = False
-                    if pedestal:
-                        output_data = output_data.astype(np.int32) + pedestal
-                        output_data = output_data.astype(np.uint16)
+                    output_data = frame_data.astype(np.int32) + pedestal
+                    output_data = np.clip(output_data, 0, 65535)
+                    output_data = output_data.astype(np.uint16)
 
                 MRCConverter.log_to_file(
                     f"Frame {idx+1} pre-save details:\n"
@@ -187,10 +186,9 @@ class MRCConverter:
                 compare_original = original_data
                 compare_tif = tif_data
             else:
-                compare_original = original_data.astype(np.uint16)
-                if pedestal:
-                    compare_original = compare_original.astype(np.int32) + pedestal
-                    compare_original = compare_original.astype(np.uint16)
+                compare_original = original_data.astype(np.int32) + pedestal
+                compare_original = np.clip(compare_original, 0, 65535)
+                compare_original = compare_original.astype(np.uint16)
                 compare_tif = tif_data
 
             # Log detailed comparison info

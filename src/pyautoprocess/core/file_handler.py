@@ -123,10 +123,8 @@ class FileHandler:
                         # Apply pedestal and ensure non-negative values (matching ser2tif.py behavior)
                         output_data = np.maximum(frame_data + 200, 0).astype(np.uint16)
                     else:
-                        # MRC files: exact v0.1.1 workflow (uint16 cast + pedestal 1)
-                        output_data = frame_data.astype(np.uint16)
-                        output_data = output_data.astype(np.int32) + 1
-                        output_data = output_data.astype(np.uint16)
+                        # MRC files: add pedestal +1, clip negatives to 0, cast to uint16
+                        output_data = np.maximum(frame_data.astype(np.int32) + 1, 0).astype(np.uint16)
 
                     # Validate output data before writing (always check for critical errors)
                     if output_data.size == 0:
@@ -196,11 +194,9 @@ class FileHandler:
                     output_data = np.maximum(frame_data + 200, 0).astype(np.uint16)
                     transformation_desc = "SER: vertical flip + pedestal +200 + clipping"
                 else:
-                    # MRC files/TVIPS files: exact v0.1.1 workflow (uint16 cast + pedestal 1)
-                    output_data = frame_data.astype(np.uint16)
-                    output_data = output_data.astype(np.int32) + 1
-                    output_data = output_data.astype(np.uint16)
-                    transformation_desc = "MRC: uint16 cast + pedestal +1"
+                    # MRC files/TVIPS files: add pedestal +1, clip negatives to 0, cast to uint16
+                    output_data = np.maximum(frame_data.astype(np.int32) + 1, 0).astype(np.uint16)
+                    transformation_desc = "MRC: pedestal +1 + clipping"
 
                 # Validate output data
                 if output_data.size == 0:
@@ -263,11 +259,9 @@ class FileHandler:
                 expected_data = np.maximum(expected_data + 200, 0).astype(np.uint16)
                 transformation_desc = "SER: vertical flip + pedestal +200 + clipping"
             else:
-                # MRC/TVIPS processing: exact v0.1.1 workflow (no flip)
-                expected_data = original_data.astype(np.uint16)
-                expected_data = expected_data.astype(np.int32) + 1
-                expected_data = expected_data.astype(np.uint16)
-                transformation_desc = "MRC: uint16 cast + pedestal +1"
+                # MRC/TVIPS processing: add pedestal +1, clip negatives to 0, cast to uint16
+                expected_data = np.maximum(original_data.astype(np.int32) + 1, 0).astype(np.uint16)
+                transformation_desc = "MRC: pedestal +1 + clipping"
 
             # Validate shapes match
             if expected_data.shape != saved_tif.shape:
