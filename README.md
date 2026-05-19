@@ -6,6 +6,7 @@ A Python package for automated processing and analysis of MicroED (Micro-Electro
 This package provides a comprehensive suite of tools for automated MicroED data processing:
 - **autoprocess**: Core script for automated MicroED data processing
 - **image_process**: Preconverted image processing and quality analysis tool
+- **monitorED**: Active file monitor that watches for incoming data and triggers processing automatically
 - **batch_reprocess**: Batch reprocessing tool with specific space group and unit cell parameters
 - **mrc2tif**: Utility for converting MRC files to TIF format
 - **ser2tif**: Utility for converting SER files to TIF format
@@ -185,7 +186,48 @@ Examples:
   image_process --parallel --pointless --signal-pixel 6 --trim-front 3 /path/to/data
 ```
 
-### 3. batch_reprocess
+### 3. monitorED
+
+#### Description
+Active file monitor for MicroED data collection sessions. Watches for incoming data files or folders and automatically triggers `autoprocess` or `image_process` when new data arrives. Designed to run during a data collection session, processing datasets as they are acquired.
+
+#### Key Features
+- **Two Processing Modes**: Monitor for raw movie files (`--autoprocess`) or pre-converted image folders (`--image-process`)
+- **Filename Validation**: Only processes files matching the expected naming schema (`sample_distance_rotation_exposure[_extra].ext`)
+- **File Stability Detection**: Waits for files to finish writing before processing (size/mtime stability check)
+- **Subdirectory Monitoring**: Optional one-level subdirectory watching (`--watch-subdirs`)
+- **Inactivity Timeout**: Automatically terminates after configurable idle period (default: 2 hours)
+- **Expected Count**: Optionally stop after processing a specific number of files (`--expect-count`)
+- **Persistent Tracking Log**: Records processed files in `monitored_tracking.log` to avoid reprocessing across restarts
+- **Flag Passthrough**: All `autoprocess` / `image_process` flags are forwarded directly to the child command
+
+#### Usage
+```bash
+monitorED (--autoprocess | --image-process) [monitor options] [processing options...]
+
+Monitor Options:
+  --autoprocess             Monitor for raw movie files (.mrc/.ser/.tvips) and run autoprocess
+  --image-process           Monitor for folders with images/ subdirectory and run image_process
+  --watch-subdirs           Also monitor immediate subdirectories (1 level deep)
+  --timeout SECONDS         Inactivity timeout in seconds (default: 7200 = 2 hours)
+  --expect-count N          Stop after processing this many files/folders
+
+Processing Options:
+  All remaining flags are forwarded to the selected command (autoprocess or image_process).
+  See their respective --help for details.
+
+Examples:
+  # Monitor current directory for new .mrc/.ser files, run autoprocess
+  monitorED --autoprocess --microscope-config default
+
+  # Monitor with subdirectories, expect 10 datasets, image_process mode
+  monitorED --image-process --watch-subdirs --expect-count 10 --microscope-config default
+
+  # Custom timeout (1 hour) with passthrough flags
+  monitorED --autoprocess --timeout 3600 --parallel --dqa --microscope-config Arctica-CETA-ser-SM
+```
+
+### 4. batch_reprocess
 
 #### Description
 Advanced tool for batch reprocessing of crystallography data with specific space group and unit cell parameters. Supports both manual parameter specification and smart automatic detection mode.
@@ -233,7 +275,7 @@ Examples:
   batch_reprocess /path/to/data
 ```
 
-### 4. mrc2tif
+### 5. mrc2tif
 
 #### Description
 Precision utility for converting MRC movie files to TIF format with comprehensive verification, statistics, and data integrity checking.
@@ -275,7 +317,7 @@ Examples:
   mrc2tif --raw --folder /path/to/data
 ```
 
-### 5. ser2tif
+### 6. ser2tif
 
 #### Description
 Specialized utility for converting SER (Serial Electron Microscopy) movie files to TIF format using the seremi library for precise SER file handling and frame extraction.
@@ -314,7 +356,7 @@ Examples:
   ser2tif --recursive --raw --folder /microscopy/data
 ```
 
-### 6. tvips2tif
+### 7. tvips2tif
 
 #### Description
 Utility for converting TVIPS movie files to TIF format with comprehensive verification and data integrity checking.
@@ -353,14 +395,22 @@ Examples:
 ```
 
 ## File Naming Convention
-### For .ser Files
+### For .mrc/.ser/.tvips Files
 ```
-sample-name_distance_rotation_exposure_additional-notes.ser
+sample-name_distance_rotation_exposure_additional-notes.ext
 ```
-Example: `sample-mov1_960_0.3_3_n60top10_g8sp10_cryo.ser`
+Examples:
+- `sample-mov1_960_0.3_3_n60top10_g8sp10_cryo.ser`
+- `Lysozyme-NAG2-DC-xtal-05_960_1p5_0p6_p40ton60_g8sp7_bin4_0_movie.mrc`
+
+Fields:
+- `sample-name`: Sample identifier (may contain hyphens)
 - `distance`: Detector distance in mm
 - `rotation`: Rotation speed in degrees/second
 - `exposure`: Exposure time in seconds
+- `additional-notes`: Optional extra metadata (ignored by parser)
+
+**Note**: Decimal points in numeric fields can use either `.` or `p` as separator (e.g., `1p5` is treated as `1.5`).
 
 ## Directory Structure
 ```
@@ -401,6 +451,13 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.4.0**: monitorED and filename parsing improvements
+  - Added monitorED: active file monitor for automated data collection sessions
+  - monitorED supports both autoprocess and image_process modes with flag passthrough
+  - File stability detection prevents processing files still being written
+  - Persistent tracking log avoids reprocessing across restarts
+  - Fixed filename parsing to support 'p' as decimal separator (e.g., `1p5` → `1.5`)
+  - Updated Talos-Apollo-P microscope configuration
 - **v0.3.2**: Resolution control and TVIPS support
   - Added dynamic XSCALE resolution shell commenting with --min-res argument
   - Enabled TVIPS file format support throughout processing pipeline

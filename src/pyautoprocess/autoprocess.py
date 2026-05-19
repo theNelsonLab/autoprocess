@@ -416,9 +416,10 @@ class CrystallographyProcessor:
 
         sample_movie = split[0]
         # Use command line parameters if provided, otherwise use filename values
-        distance = self.params.detector_distance or split[1]
-        rotation = self.params.rotation or split[2]
-        exposure = self.params.exposure or split[3]
+        # Normalize 'p' → '.' for numeric fields (e.g. '1p5' → '1.5')
+        distance = self.params.detector_distance or split[1].replace("p", ".")
+        rotation = self.params.rotation or split[2].replace("p", ".")
+        exposure = self.params.exposure or split[3].replace("p", ".")
 
         return (sample_movie, distance, rotation, exposure)  # Return as a tuple
 

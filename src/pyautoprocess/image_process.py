@@ -486,9 +486,9 @@ class PreConvertedProcessor:
                 return None
 
             sample_movie = split[0]
-            distance = split[1]
-            rotation = split[2]
-            exposure = split[3]
+            distance = split[1].replace("p", ".")
+            rotation = split[2].replace("p", ".")
+            exposure = split[3].replace("p", ".")
 
             # Metadata parsed successfully from source file
 

@@ -77,14 +77,14 @@
     "Talos-Apollo-P": {
         "microscope_config": "Talos-Apollo-P",
         "rotation_axis": "-1 0 0",
-        "frame_size": 4096,
+        "frame_size": 2048,
         "signal_pixel": 4,
         "min_pixel": 6,
         "background_pixel": 2,
-        "pixel_size": 0.008,
+        "pixel_size": 0.016,
         "wavelength": "0.0251",
-        "beam_center_x": 2050,
-        "beam_center_y": 2080,
+        "beam_center_x": 960,
+        "beam_center_y": 1040,
         "file_extension": ".mrc",
         "value_range_min": 10.0,
         "value_range_max": 65535.0
