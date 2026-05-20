@@ -451,6 +451,11 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.4.2**: `--id` flag for sample-name override in autoprocess
+  - New `--id SAMPLE_ID` flag (autoprocess only) overrides the sample name parsed from the filename
+  - With `--id`, files that lack the conventional `sample_distance_rotation_exposure` underscore structure are still processed, provided the missing numeric fields can be supplied via CLI flags or microscope config defaults
+  - Without `--id`, unconventional filenames remain skipped (unchanged behavior)
+  - image_process is unchanged (it already derives the sample name from the folder name)
 - **v0.4.1**: Microscope-config defaults and reprocessing fixes
   - Added `detector_distance`, `rotation`, `exposure`, `background_range_start`, `background_range_end` to every microscope configuration
   - New parameter precedence: CLI override > filename-parsed value > microscope config default

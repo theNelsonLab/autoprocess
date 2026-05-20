@@ -17,7 +17,7 @@ COMMON_ARGS = {
     'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel', 'background_range'
 }
 
-AUTOPROCESS_ONLY_ARGS = {'reprocess'}
+AUTOPROCESS_ONLY_ARGS = {'reprocess', 'sample_id'}
 IMAGE_PROCESS_ONLY_ARGS = {'smv', 'trim_front', 'trim_end'}
 
 ALL_ARGS = COMMON_ARGS | AUTOPROCESS_ONLY_ARGS | IMAGE_PROCESS_ONLY_ARGS
@@ -187,6 +187,11 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           action='store_true',
                           help='Reprocess files even if they have been processed before')
 
+    add_argument_if_needed('sample_id', '--id',
+                          dest='sample_id', type=str, default=None,
+                          help='Override (or supply, if the filename has none) the sample name. '
+                               'autoprocess only; image_process derives the sample name from the folder.')
+
     add_argument_if_needed('smv', '--smv',
                           action='store_true',
                           help='Process SMV (.img) files instead of TIF files')
@@ -248,6 +253,10 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     else:
         params['background_range_start'] = None
         params['background_range_end'] = None
+
+    # autoprocess-only: sample id override (image_process derives sample name from folder)
+    if tool == 'autoprocess':
+        params['sample_id'] = get_arg_value('sample_id', None)
 
     # Handle image_process specific parameters
     if tool == 'image_process':

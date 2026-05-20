@@ -37,3 +37,4 @@ class ProcessingParameters:
     min_res: Optional[float] = None
     background_range_start: Optional[int] = None
     background_range_end: Optional[int] = None
+    sample_id: Optional[str] = None

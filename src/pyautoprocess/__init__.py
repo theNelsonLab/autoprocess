@@ -6,7 +6,7 @@ from .autoprocess import CrystallographyProcessor
 from .config.parameters import ProcessingParameters
 from .config.config_manager import ConfigLoader
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 __all__ = [
     'CrystallographyProcessor',
     'ProcessingParameters',

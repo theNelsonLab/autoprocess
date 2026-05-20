@@ -452,27 +452,57 @@ class CrystallographyProcessor:
         self.log_print(f"\nProceeding with scaling")
 
     def parse_filename(self, filename: str) -> Optional[Tuple[str, str, str, str]]:
-        """Parse the input filename to extract parameters."""
+        """Parse the input filename to extract parameters.
+
+        Precedence per field (CLI override > filename value > microscope config default).
+        --id overrides sample_movie unconditionally. If --id is supplied, filenames that
+        lack the 4 underscore-separated fields are still accepted as long as the missing
+        numeric fields can be filled from CLI or config defaults.
+        """
         if not filename.endswith(self.params.file_extension):
             return None
 
         split = filename.split("_")
-        if len(split) < 4:
-            self.log_print(f"Skipping {filename}: unexpected filename format.")
+        has_filename_fields = len(split) >= 4
+        sample_id = self.params.sample_id
+
+        if not has_filename_fields and not sample_id:
+            self.log_print(f"Skipping {filename}: unexpected filename format (use --id to override).")
             return None
 
-        sample_movie = split[0]
-        # Precedence: CLI override > filename value > microscope config default.
-        # Normalize 'p' → '.' for numeric fields (e.g. '1p5' → '1.5')
+        # Sample name: --id wins, else split[0]. Strip the extension if there are no
+        # underscores at all, so the sample name doesn't include ".mrc"/".ser"/".tvips".
+        if sample_id:
+            sample_movie = sample_id
+        elif has_filename_fields:
+            sample_movie = split[0]
+        else:
+            sample_movie = Path(filename).stem
+
+        # Numeric fields: CLI > filename > config default. Normalize 'p' → '.'.
+        filename_distance = split[1].replace("p", ".") if has_filename_fields else None
+        filename_rotation = split[2].replace("p", ".") if has_filename_fields else None
+        filename_exposure = split[3].replace("p", ".") if has_filename_fields else None
+
         distance = (self.params.detector_distance
-                    or split[1].replace("p", ".")
+                    or filename_distance
                     or self.params.default_detector_distance)
         rotation = (self.params.rotation
-                    or split[2].replace("p", ".")
+                    or filename_rotation
                     or self.params.default_rotation)
         exposure = (self.params.exposure
-                    or split[3].replace("p", ".")
+                    or filename_exposure
                     or self.params.default_exposure)
+
+        missing = [name for name, val in
+                   (('detector distance', distance), ('rotation', rotation), ('exposure', exposure))
+                   if not val]
+        if missing:
+            self.log_print(
+                f"Skipping {filename}: missing {', '.join(missing)} "
+                f"(filename has none and no CLI/config default available)."
+            )
+            return None
 
         return (sample_movie, distance, rotation, exposure)  # Return as a tuple
 
@@ -1358,6 +1388,13 @@ FRIEDEL'S_LAW=FALSE
 
         if not files_to_process:
             self.log_print("No .mrc, .ser, or .tvips files found to process.")
+            return
+
+        if self.params.sample_id and len(files_to_process) > 1:
+            self.log_print(
+                f"Error: --id '{self.params.sample_id}' was set but {len(files_to_process)} "
+                "files would be processed. --id can only be used with a single input file."
+            )
             return
 
         processed_movie = False
