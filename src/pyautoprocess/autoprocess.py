@@ -10,6 +10,7 @@ import shutil
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from subprocess import run
 from typing import Dict, List, Optional, Tuple
@@ -126,30 +127,62 @@ class CrystallographyProcessor:
         """Configure logging - delegates to DisplayManager"""
         self.display.setup_logging(log_file, dir_name)
 
+    def _reset_auto_process_for_reprocessing(self, sample_movie: str, source_file_path: Path) -> None:
+        """Move any non-empty existing auto_process/ to processing_backups/ so re-runs start clean.
+
+        Without this, stale CORRECT.LP / XPARM.XDS / DEFPIX.LP from a previous run cause
+        process_check to short-circuit straight into mosaicity (bypassing the indexing-retry
+        path), and stale XDS.LP can make iterate_opt fail to parse the initial ISa value.
+        """
+        movie_path = source_file_path.parent / sample_movie
+        auto_process_path = movie_path / "auto_process"
+        if not auto_process_path.exists():
+            return
+        try:
+            has_content = any(auto_process_path.iterdir())
+        except OSError as e:
+            self.log_print(f"Warning: could not inspect existing auto_process/: {e}")
+            return
+        if not has_content:
+            shutil.rmtree(auto_process_path, ignore_errors=True)
+            return
+
+        backups_root = movie_path / "processing_backups"
+        backups_root.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = backups_root / f"{sample_movie}_{timestamp}"
+        counter = 1
+        while backup_path.exists():
+            backup_path = backups_root / f"{sample_movie}_{timestamp}_{counter}"
+            counter += 1
+            if counter > 100:
+                break
+        try:
+            shutil.move(str(auto_process_path), str(backup_path))
+            rel = backup_path.relative_to(movie_path.parent)
+            self.log_print(f"Backed up previous auto_process/ to {rel}")
+        except Exception as e:
+            self.log_print(f"Warning: could not back up previous auto_process/: {e}; removing in place")
+            shutil.rmtree(auto_process_path, ignore_errors=True)
+
     def _setup_movie_directories(self, sample_movie: str, distance: str, source_file_path: Path) -> Optional[Path]:
         """Set up directory structure for movie processing without moving source files."""
-        # Create directories in the same location as the source file
         source_dir = source_file_path.parent
         movie_path = source_dir / sample_movie
 
-        if not movie_path.exists():
-            movie_path.mkdir(exist_ok=True)
+        is_new = not movie_path.exists()
+        movie_path.mkdir(exist_ok=True)
 
-            # Copy associated .emi files if they exist in the same directory as source
+        if is_new:
+            # One-time: copy associated .emi files if they exist next to the source
             for emi_file in source_dir.glob(f"{sample_movie}_{distance}*.emi"):
-                # Copy instead of move to preserve original structure
                 shutil.copy2(str(emi_file), str(movie_path / emi_file.name))
 
-            # Create images directory
-            image_path = movie_path / "images"
-            image_path.mkdir(exist_ok=True)
+        # Always ensure subdirs exist so reprocessing works after partial cleanup
+        (movie_path / "images").mkdir(exist_ok=True)
+        (movie_path / "auto_process").mkdir(exist_ok=True)
 
-            # Create auto_process directory
-            auto_process_path = movie_path / "auto_process"
-            auto_process_path.mkdir(exist_ok=True)
-
-            return movie_path
-        return movie_path  # Return existing path
+        return movie_path
 
     def _read_source_file(self, filename: str) -> Tuple[np.ndarray, bool]:
         """Read source file (MRC or SER) from current path - backward compatibility wrapper"""
@@ -175,8 +208,16 @@ class CrystallographyProcessor:
             # Initialize frame range variables
             start_frame = None
             end_frame = None
-            background_start = 1
-            background_end = 10
+
+            # Initialize background range - use custom values if provided, otherwise use defaults
+            if self.params.background_range_start is not None and self.params.background_range_end is not None:
+                background_start = self.params.background_range_start
+                background_end = self.params.background_range_end
+                custom_background = True
+            else:
+                background_start = 1
+                background_end = 10
+                custom_background = False
 
             # OPTIMIZED WORKFLOW: Read file once for both quality analysis and conversion
             self.log_print(f"\nStep 1: Reading source file: {filename}")
@@ -219,11 +260,14 @@ class CrystallographyProcessor:
                     return
 
                 # Calculate background range (start + 10 frames, but at least frame 1)
-                background_start = max(1, start_frame)
-                background_end = min(start_frame + 9, end_frame)  # 10 frames starting from start_frame
+                # Only recalculate if custom background range was not provided
+                if not custom_background:
+                    background_start = max(1, start_frame)
+                    background_end = min(start_frame + 9, end_frame)  # 10 frames starting from start_frame
 
                 self.log_print(f"Selected frame range: {start_frame}-{end_frame}")
-                self.log_print(f"Background range: {background_start}-{background_end}")
+                self.log_print(f"Background range: {background_start}-{background_end}" +
+                             (" (custom)" if custom_background else ""))
             else:
                 self.log_print(f"\nStep 2: Quality analysis disabled, processing all frames")
                 # Set default frame range when quality analysis is disabled
@@ -264,11 +308,14 @@ class CrystallographyProcessor:
                 start_frame = 1
                 end_frame = total_images
 
-            # Update background range if using full range
-            if not self.params.quality_analysis:
+            # Update background range if using full range (only if custom range not provided)
+            if not self.params.quality_analysis and not custom_background:
                 background_end = min(10, end_frame)
+
+            if not self.params.quality_analysis:
                 self.log_print(f"Using full frame range: {start_frame}-{end_frame}")
-                self.log_print(f"Background range: {background_start}-{background_end}")
+                self.log_print(f"Background range: {background_start}-{background_end}" +
+                             (" (custom)" if custom_background else ""))
 
             # STEP 3: Create XDS.INP with frame ranges in auto_process directory
             step3_msg = "quality-based frame selection" if self.params.quality_analysis else "standard frame processing"
@@ -415,11 +462,17 @@ class CrystallographyProcessor:
             return None
 
         sample_movie = split[0]
-        # Use command line parameters if provided, otherwise use filename values
+        # Precedence: CLI override > filename value > microscope config default.
         # Normalize 'p' → '.' for numeric fields (e.g. '1p5' → '1.5')
-        distance = self.params.detector_distance or split[1].replace("p", ".")
-        rotation = self.params.rotation or split[2].replace("p", ".")
-        exposure = self.params.exposure or split[3].replace("p", ".")
+        distance = (self.params.detector_distance
+                    or split[1].replace("p", ".")
+                    or self.params.default_detector_distance)
+        rotation = (self.params.rotation
+                    or split[2].replace("p", ".")
+                    or self.params.default_rotation)
+        exposure = (self.params.exposure
+                    or split[3].replace("p", ".")
+                    or self.params.default_exposure)
 
         return (sample_movie, distance, rotation, exposure)  # Return as a tuple
 
@@ -1078,10 +1131,8 @@ class CrystallographyProcessor:
         """Optimize processing parameters."""
         # Get first ISa value
         Isa1 = None
-        with open('XDS.LP', 'r+') as f:
+        with open('XDS.LP', 'r') as f:
             lines = f.readlines()
-            f.seek(0)
-            f.writelines(lines[-26:])
 
         for line in lines:
             if ["a", "b", "ISa"] == line.split():
@@ -1099,16 +1150,14 @@ class CrystallographyProcessor:
 
         # Get second set of ISa values
         Isa2_values = []
-        with open('XDS.LP', 'r+') as f:
+        with open('XDS.LP', 'r') as f:
             lines = f.readlines()
-            f.seek(0)
-            f.writelines(lines[-26:])
 
-            for line in lines:
-                if ["a", "b", "ISa"] == line.split():
-                    new_next_line = lines[lines.index(line) + 1]
-                    new_stats = new_next_line.split()
-                    Isa2_values.append(float(new_stats[2]))
+        for line in lines:
+            if ["a", "b", "ISa"] == line.split():
+                new_next_line = lines[lines.index(line) + 1]
+                new_stats = new_next_line.split()
+                Isa2_values.append(float(new_stats[2]))
 
         # Check if we found any Isa2 values
         if not Isa2_values:
@@ -1396,9 +1445,10 @@ FRIEDEL'S_LAW=FALSE
                             test_resolution_range: float, filename: str,
                             source_file_path: Path) -> None:
         """Process a single movie file."""
-        # Check if output directory already exists (old behavior for directory structure)
-        if Path(sample_movie).exists():
-            self.log_print(f"Output directory {sample_movie} already exists - reprocessing")
+        # If a prior auto_process/ exists, back it up so we always start from clean state
+        # (matches image_process behaviour; required for --reprocess to produce the same
+        # workflow on re-runs).
+        self._reset_auto_process_for_reprocessing(sample_movie, source_file_path)
 
         # Log processing parameters for this movie
         self.log_print(f"\nProcessing parameters for {filename}:")

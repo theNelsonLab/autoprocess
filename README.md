@@ -451,6 +451,13 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.4.1**: Microscope-config defaults and reprocessing fixes
+  - Added `detector_distance`, `rotation`, `exposure`, `background_range_start`, `background_range_end` to every microscope configuration
+  - New parameter precedence: CLI override > filename-parsed value > microscope config default
+  - `--background-range` CLI default is now sourced from the active microscope config
+  - Fixed `_setup_movie_directories` so re-runs over a partially-cleaned sample folder still create the missing `images/` and `auto_process/` subdirs
+  - Fixed `iterate_opt` writing back a truncated copy of `XDS.LP`, which corrupted the log and broke initial-ISa parsing on subsequent runs
+  - `--reprocess` now backs up any existing `auto_process/` to `processing_backups/` before each run so the indexing-retry pipeline always starts from a clean state
 - **v0.4.0**: monitorED and filename parsing improvements
   - Added monitorED: active file monitor for automated data collection sessions
   - monitorED supports both autoprocess and image_process modes with flag passthrough

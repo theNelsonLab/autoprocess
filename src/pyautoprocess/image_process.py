@@ -197,17 +197,20 @@ class PreConvertedProcessor:
                     if metadata:
                         metadata_source = "XDS.INP"
 
-            # Apply priority order for each parameter
+            # Precedence: CLI override > filename/metadata value > microscope config default.
             actual_distance = (self.params.detector_distance or
                              (metadata[1] if metadata else None) or
+                             self.params.default_detector_distance or
                              "960")
 
             actual_rotation = (self.params.rotation or
                              (metadata[2] if metadata else None) or
+                             self.params.default_rotation or
                              "0.3")
 
             actual_exposure = (self.params.exposure or
                              (metadata[3] if metadata else None) or
+                             self.params.default_exposure or
                              "3.0")
 
             # Check if we have oscillation range from XDS.INP
@@ -345,9 +348,16 @@ class PreConvertedProcessor:
                 self._modify_frame_ranges_with_range(final_start_frame, final_end_frame, int(image_number))
             else:
                 # Even if using full range, still log background range for consistency
-                background_start = 1
-                background_end = min(10, int(image_number))
-                self.processor.log_print(f"Background range: {background_start}-{background_end}")
+                if self.params.background_range_start is not None and self.params.background_range_end is not None:
+                    background_start = self.params.background_range_start
+                    background_end = self.params.background_range_end
+                    custom_background = True
+                else:
+                    background_start = 1
+                    background_end = min(10, int(image_number))
+                    custom_background = False
+                self.processor.log_print(f"Background range: {background_start}-{background_end}" +
+                                       (" (custom)" if custom_background else ""))
 
             # Log initial XDS processing parameters
             self._log_xds_processing_parameters("Initial XDS.INP")
@@ -542,9 +552,15 @@ class PreConvertedProcessor:
                 )
                 return
 
-            # Calculate background range (start + 10 frames, but at least frame 1)
-            background_start = max(1, start_frame)
-            background_end = min(start_frame + 9, end_frame)
+            # Calculate background range - use custom values if provided, otherwise calculate
+            if self.params.background_range_start is not None and self.params.background_range_end is not None:
+                background_start = self.params.background_range_start
+                background_end = self.params.background_range_end
+                custom_background = True
+            else:
+                background_start = max(1, start_frame)
+                background_end = min(start_frame + 9, end_frame)  # 10 frames starting from start_frame
+                custom_background = False
 
             with open('XDS.INP', 'r') as f:
                 lines = f.readlines()
@@ -562,7 +578,8 @@ class PreConvertedProcessor:
 
             # Log background range only (frame range already logged above)
             background_range = f"{background_start}-{background_end}"
-            self.processor.log_print(f"Background range: {background_range}")
+            self.processor.log_print(f"Background range: {background_range}" +
+                                   (" (custom)" if custom_background else ""))
 
         except Exception as e:
             self.processor.log_print(f"Error modifying frame ranges: {str(e)}")
@@ -913,17 +930,17 @@ def main():
     if params.detector_distance:
         processor.processor.log_print(f"Detector Distance: {params.detector_distance} (override)")
     else:
-        processor.processor.log_print(f"Detector Distance: will parse from source file or use default 960")
+        processor.processor.log_print(f"Detector Distance: will parse from source file or use config default {params.default_detector_distance or '960'}")
 
     if params.exposure:
         processor.processor.log_print(f"Exposure Time: {params.exposure} (override)")
     else:
-        processor.processor.log_print(f"Exposure Time: will parse from source file or use default 3.0")
+        processor.processor.log_print(f"Exposure Time: will parse from source file or use config default {params.default_exposure or '3.0'}")
 
     if params.rotation:
         processor.processor.log_print(f"Rotation Rate: {params.rotation} (override)")
     else:
-        processor.processor.log_print(f"Rotation Rate: will parse from source file or use default 0.3")
+        processor.processor.log_print(f"Rotation Rate: will parse from source file or use config default {params.default_rotation or '0.3'}")
     if params.trim_front > 0 or params.trim_end > 0:
         processor.processor.log_print(
             f"Frame trimming: {params.trim_front} frames from start, {params.trim_end} frames from end"

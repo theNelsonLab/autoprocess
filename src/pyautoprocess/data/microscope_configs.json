@@ -12,7 +12,12 @@
         "beam_center_y": 1040,
         "file_extension": ".ser",
         "value_range_min": 3000.0,
-        "value_range_max": 65535.0
+        "value_range_max": 65535.0,
+        "detector_distance": "960",
+        "rotation": "0.3",
+        "exposure": "3",
+        "background_range_start": 1,
+        "background_range_end": 10
     },
     "Arctica-CETA-mrc-SM": {
         "microscope_config": "Arctica-CETA-mrc-SM",
@@ -27,7 +32,12 @@
         "beam_center_y": 1020,
         "file_extension": ".mrc",
         "value_range_min": 3000.0,
-        "value_range_max": 65535.0
+        "value_range_max": 65535.0,
+        "detector_distance": "960",
+        "rotation": "0.3",
+        "exposure": "3",
+        "background_range_start": 1,
+        "background_range_end": 10
     },
     "Arctica-EMcore-ser-SM": {
         "microscope_config": "Arctica-EMcore-ser-SM",
@@ -42,7 +52,12 @@
         "beam_center_y": 1030,
         "file_extension": ".ser",
         "value_range_min": 6000.0,
-        "value_range_max": 30000.0
+        "value_range_max": 30000.0,
+        "detector_distance": "960",
+        "rotation": "0.3",
+        "exposure": "3",
+        "background_range_start": 1,
+        "background_range_end": 10
     },
     "Talos-Apollo-SM": {
         "microscope_config": "Talos-Apollo-SM",
@@ -57,7 +72,12 @@
         "beam_center_y": 1020,
         "file_extension": ".mrc",
         "value_range_min": 10.0,
-        "value_range_max": 65535.0
+        "value_range_max": 65535.0,
+        "detector_distance": "560",
+        "rotation": "1",
+        "exposure": "1",
+        "background_range_start": 1,
+        "background_range_end": 10
     },
     "Talos-CETA-ser-SM": {
         "microscope_config": "Talos-CETA-ser-SM",
@@ -72,7 +92,12 @@
         "beam_center_y": 1020,
         "file_extension": ".ser",
         "value_range_min": 3000.0,
-        "value_range_max": 65535.0
+        "value_range_max": 65535.0,
+        "detector_distance": "960",
+        "rotation": "0.3",
+        "exposure": "3",
+        "background_range_start": 1,
+        "background_range_end": 10
     },
     "Talos-Apollo-P": {
         "microscope_config": "Talos-Apollo-P",
@@ -87,7 +112,12 @@
         "beam_center_y": 1040,
         "file_extension": ".mrc",
         "value_range_min": 10.0,
-        "value_range_max": 65535.0
+        "value_range_max": 65535.0,
+        "detector_distance": "1260",
+        "rotation": "0.6",
+        "exposure": "1.5",
+        "background_range_start": 20,
+        "background_range_end": 40
     },
     "F30-TVIPS-SM": {
         "microscope_config": "F30-TVIPS-SM",
@@ -102,7 +132,12 @@
         "beam_center_y": 1020,
         "file_extension": ".tvips",
         "value_range_min": 10.0,
-        "value_range_max": 65535.0
+        "value_range_max": 65535.0,
+        "detector_distance": "1320",
+        "rotation": "0.3",
+        "exposure": "3",
+        "background_range_start": 1,
+        "background_range_end": 10
     },
     "default": {
         "rotation_axis": "-1 0 0",
@@ -116,6 +151,11 @@
         "beam_center_y": 1040,
         "file_extension": ".ser",
         "value_range_min": 6000.0,
-        "value_range_max": 30000.0
+        "value_range_max": 30000.0,
+        "detector_distance": "960",
+        "rotation": "0.3",
+        "exposure": "3",
+        "background_range_start": 1,
+        "background_range_end": 10
     }
 }

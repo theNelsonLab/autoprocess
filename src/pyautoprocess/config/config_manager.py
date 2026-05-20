@@ -51,7 +51,12 @@ class ConfigLoader:
             "beam_center_y": 1040,
             "file_extension": ".ser",
             "value_range_min": 6000.0,
-            "value_range_max": 30000.0
+            "value_range_max": 30000.0,
+            "detector_distance": "960",
+            "rotation": "0.3",
+            "exposure": "3",
+            "background_range_start": 1,
+            "background_range_end": 10
         }
 
     def get_config(self, microscope_name: str) -> ProcessingParameters:
@@ -62,9 +67,18 @@ class ConfigLoader:
             config = self.configs[microscope_name]
             logging.info(f"Loaded configuration for {microscope_name}")
 
-        # Remove microscope_config from parameters if present
+        # Remove microscope_config from parameters if present, and route
+        # filename-derived fields (detector_distance/rotation/exposure) into
+        # the default_* slots so params.<field> stays reserved for CLI overrides.
         if isinstance(config, dict):
             config = {k: v for k, v in config.items() if k != 'microscope_config'}
+            for cli_field, default_field in (
+                ('detector_distance', 'default_detector_distance'),
+                ('rotation', 'default_rotation'),
+                ('exposure', 'default_exposure'),
+            ):
+                if cli_field in config:
+                    config[default_field] = config.pop(cli_field)
 
         return ProcessingParameters(**config, microscope_config=microscope_name)
 

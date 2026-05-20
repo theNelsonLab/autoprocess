@@ -14,7 +14,7 @@ COMMON_ARGS = {
     'signal_pixel', 'min_pixel', 'background_pixel', 'pixel_size',
     'wavelength', 'beam_center_x', 'beam_center_y', 'file_extension',
     'detector_distance', 'exposure', 'rotation', 'pointless', 'parallel',
-    'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel'
+    'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel', 'background_range'
 }
 
 AUTOPROCESS_ONLY_ARGS = {'reprocess'}
@@ -136,16 +136,16 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           help='Override input file extension')
 
     add_argument_if_needed('detector_distance', '--detector-distance',
-                          type=str, default=config.detector_distance,
-                          help='Override detector distance (in mm)')
+                          type=str, default=None,
+                          help='Override detector distance (in mm); takes precedence over filename and microscope config')
 
     add_argument_if_needed('exposure', '--exposure',
-                          type=str, default=config.exposure,
-                          help='Override exposure time')
+                          type=str, default=None,
+                          help='Override exposure time; takes precedence over filename and microscope config')
 
     add_argument_if_needed('rotation', '--rotation',
-                          type=str, default=config.rotation,
-                          help='Override rotation value')
+                          type=str, default=None,
+                          help='Override rotation value; takes precedence over filename and microscope config')
 
     add_argument_if_needed('pointless', '--pointless',
                           action='store_true',
@@ -174,6 +174,13 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     add_argument_if_needed('friedel', '--friedel',
                           type=lambda x: x.lower() == 'true', default=True,
                           help="Set Friedel's law for XDS (true or false, default: true)")
+
+    config_bg_default = None
+    if config.background_range_start is not None and config.background_range_end is not None:
+        config_bg_default = [config.background_range_start, config.background_range_end]
+    add_argument_if_needed('background_range', '--background-range',
+                          type=int, nargs=2, metavar=('START', 'END'), default=config_bg_default,
+                          help='Custom background range as two integers (start end). Overrides microscope config default.')
 
     # Tool-specific arguments
     add_argument_if_needed('reprocess', '--reprocess',
@@ -216,9 +223,12 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['file_extension'] = get_arg_value('file_extension', config.file_extension)
     params['value_range_min'] = get_arg_value('value_range_min', config.value_range_min)
     params['value_range_max'] = get_arg_value('value_range_max', config.value_range_max)
-    params['detector_distance'] = get_arg_value('detector_distance', config.detector_distance)
-    params['exposure'] = get_arg_value('exposure', config.exposure)
-    params['rotation'] = get_arg_value('rotation', config.rotation)
+    params['detector_distance'] = get_arg_value('detector_distance', None)
+    params['exposure'] = get_arg_value('exposure', None)
+    params['rotation'] = get_arg_value('rotation', None)
+    params['default_detector_distance'] = config.default_detector_distance
+    params['default_exposure'] = config.default_exposure
+    params['default_rotation'] = config.default_rotation
     params['microscope_config'] = get_arg_value('microscope_config', 'default')
     params['pointless'] = get_arg_value('pointless', False)
     params['parallel'] = get_arg_value('parallel', False)
@@ -228,6 +238,16 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['verbose'] = get_arg_value('verbose', False)
     params['res_range'] = get_arg_value('res_range', None)
     params['friedel'] = get_arg_value('friedel', True)
+    params['min_res'] = get_arg_value('min_res', None)
+
+    # Handle background_range (convert from [start, end] to two separate parameters)
+    background_range = get_arg_value('background_range', None)
+    if background_range is not None and len(background_range) == 2:
+        params['background_range_start'] = background_range[0]
+        params['background_range_end'] = background_range[1]
+    else:
+        params['background_range_start'] = None
+        params['background_range_end'] = None
 
     # Handle image_process specific parameters
     if tool == 'image_process':

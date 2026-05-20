@@ -22,6 +22,9 @@ class ProcessingParameters:
     detector_distance: Optional[str] = None
     exposure: Optional[str] = None
     rotation: Optional[str] = None
+    default_detector_distance: Optional[str] = None
+    default_rotation: Optional[str] = None
+    default_exposure: Optional[str] = None
     microscope_config: str = "default"
     pointless: bool = False
     parallel: bool = False
@@ -32,3 +35,5 @@ class ProcessingParameters:
     verbose: bool = False
     res_range: Optional[float] = None
     min_res: Optional[float] = None
+    background_range_start: Optional[int] = None
+    background_range_end: Optional[int] = None
