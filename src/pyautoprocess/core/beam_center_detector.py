@@ -44,6 +44,7 @@ Coordinate conventions
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -225,12 +226,22 @@ class BeamCenterDetector:
 
     def _analyse_frame(self, frame: "np.ndarray") -> Optional[BeamCenterResult]:
         """Run the estimator on one frame; return ``None`` instead of raising."""
-        return find_beam_center(
-            frame,
-            initial_center=(self.config_x - 1, self.config_y - 1),
-            search_radius_fraction=self.search_radius_fraction,
-            max_analysis_size=self.max_analysis_size,
-        )
+        with warnings.catch_warnings():
+            # scikit-image's RANSAC emits this on perfectly successful runs when a contour
+            # level yields few points. Filtered by exact message rather than by category, so
+            # any other UserWarning still surfaces -- and so a caller running with -W error
+            # is not broken by a benign, expected warning.
+            warnings.filterwarnings(
+                "ignore",
+                message="Input does not contain enough significant data points",
+                category=UserWarning,
+            )
+            return find_beam_center(
+                frame,
+                initial_center=(self.config_x - 1, self.config_y - 1),
+                search_radius_fraction=self.search_radius_fraction,
+                max_analysis_size=self.max_analysis_size,
+            )
 
     @staticmethod
     def _max_pairwise_distance(points: Sequence[Tuple[float, float]]) -> float:
@@ -383,3 +394,44 @@ class BeamCenterDetector:
             frames_tried=tried,
             detail=detail,
         )
+
+
+def write_provenance(outcome: Optional[BeamCenterOutcome],
+                     directory,
+                     config_x: int,
+                     config_y: int) -> None:
+    """Record how the beam centre was chosen, next to the XDS files that used it.
+
+    Written whether detection succeeded or not: "we tried and fell back" is exactly the thing
+    someone re-examining a dataset months later needs to know. Never raises -- provenance must
+    not be able to break processing.
+    """
+    from pathlib import Path as _Path
+
+    try:
+        path = _Path(directory) / "beam_center.LP"
+        lines = ["# Beam-centre detection (--beam-center, EXPERIMENTAL)",
+                 f"# microscope config ORGX/ORGY = {config_x} {config_y}"]
+
+        if outcome is None:
+            lines += ["result= FALLBACK (detection did not produce a trusted centre)",
+                      f"ORGX= {config_x}", f"ORGY= {config_y}"]
+        else:
+            lines += [
+                f"result= DETECTED",
+                f"ORGX= {outcome.x}",
+                f"ORGY= {outcome.y}",
+                f"raw_x= {outcome.raw_x:.3f}",
+                f"raw_y= {outcome.raw_y:.3f}",
+                f"shift_from_config= {outcome.x - config_x:+d} {outcome.y - config_y:+d}",
+                f"method= {outcome.method}",
+                f"confidence= {outcome.confidence:.3f}",
+                f"frames_used= {outcome.n_frames_used}",
+                f"frames_tried= {' '.join(str(n) for n in outcome.frames_tried)}",
+                f"cross_frame_spread_px= {outcome.spread_px:.3f}",
+                f"detail= {outcome.detail}",
+            ]
+
+        path.write_text("\n".join(lines) + "\n")
+    except Exception:
+        pass

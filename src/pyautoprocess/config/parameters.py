@@ -35,6 +35,8 @@ class ProcessingParameters:
     verbose: bool = False
     res_range: Optional[float] = None
     min_res: Optional[float] = None
+    # Opt-in: detect the beam centre from the frames instead of trusting the config.
+    beam_center: bool = False
     # Opt-in: derive the rotation-axis sign from the tilt-direction token in the filename.
     auto_rotation_axis: bool = False
     # Was the value supplied explicitly on the command line, as opposed to inherited from the

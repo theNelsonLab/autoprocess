@@ -15,7 +15,7 @@ COMMON_ARGS = {
     'wavelength', 'beam_center_x', 'beam_center_y', 'file_extension',
     'detector_distance', 'exposure', 'rotation', 'pointless', 'parallel',
     'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel', 'background_range',
-    'auto_rotation_axis'
+    'auto_rotation_axis', 'beam_center'
 }
 
 AUTOPROCESS_ONLY_ARGS = {'reprocess', 'sample_id'}
@@ -160,6 +160,13 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           action='store_true',
                           help='Enable diffraction quality analysis and frame selection')
 
+    add_argument_if_needed('beam_center', '--beam-center',
+                          action='store_true',
+                          help='EXPERIMENTAL: detect the beam centre from the diffraction frames '
+                               'and use it for ORGX/ORGY instead of the microscope-config value. '
+                               'Probes the first, middle and last frame; falls back to the config '
+                               'value whenever detection is not trustworthy. Off by default.')
+
     add_argument_if_needed('auto_rotation_axis', '--auto-rotation-axis',
                           action='store_true',
                           help='EXPERIMENTAL: derive the rotation-axis sign from the tilt-direction '
@@ -256,6 +263,7 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['parallel'] = get_arg_value('parallel', False)
     params['quality_analysis'] = get_arg_value('dqa', False)
     params['auto_rotation_axis'] = get_arg_value('auto_rotation_axis', False)
+    params['beam_center'] = get_arg_value('beam_center', False)
     params['paths'] = get_arg_value('paths', [])
     params['reprocess'] = get_arg_value('reprocess', False)
     params['verbose'] = get_arg_value('verbose', False)

@@ -23,6 +23,12 @@ from .core.file_handler import FileHandler
 from .core.xds_manager import XDSManager
 from .core.process_tracker import ProcessTracker
 from .core.rotation_axis import resolve_rotation_axis
+from .core.beam_center_detector import (
+    BeamCenterDetector,
+    select_fallback_frames,
+    select_probe_frames,
+    write_provenance,
+)
 from .config.parameters import ProcessingParameters
 from .ui.display_manager import DisplayManager
 from .ui.cli_parser import parse_autoprocess_arguments
@@ -195,6 +201,76 @@ class CrystallographyProcessor:
         """Verify TIF conversion - delegates to FileHandler"""
         return self.file_handler.verify_tif_conversion(original_data, tif_path, file_extension)
 
+    def _probe_frames(self, data: np.ndarray, is_multiframe: bool, filename: str,
+                      numbers: List[int]) -> Dict[int, np.ndarray]:
+        """Pull 1-based frame numbers out of the in-memory movie for beam-centre detection.
+
+        CRITICAL: frames are returned in the orientation that will be WRITTEN TO THE TIFs,
+        not the raw file orientation. SER frames are flipped vertically during conversion
+        (FileHandler.convert_data_to_tif), so detecting on the raw array would give an ORGY
+        mirrored about the midline -- confidently wrong, which is the worst kind.
+        """
+        needs_flip = Path(filename).suffix.lower() == '.ser'
+        frames: Dict[int, np.ndarray] = {}
+
+        for number in numbers:
+            if is_multiframe:
+                if not 1 <= number <= data.shape[0]:
+                    continue
+                frame = data[number - 1]
+            else:
+                if number != 1:
+                    continue
+                frame = data
+            frames[number] = frame[::-1] if needs_flip else frame
+
+        return frames
+
+    def _detect_beam_center(self, data: np.ndarray, is_multiframe: bool, filename: str,
+                            start_frame: int, end_frame: int,
+                            output_dir: Path) -> Optional[Tuple[int, int]]:
+        """Detect the beam centre from the frames XDS will integrate.
+
+        Returns (x, y) in XDS 1-based convention, or None to keep the configured centre.
+        Probes the first, middle and last frame of the range -- either end of a movie can be
+        blank, so no single frame is trusted -- and retries at 25%/75% if all three fail.
+        """
+        config_x, config_y = self.params.beam_center_x, self.params.beam_center_y
+
+        if self.params.beam_center_x_explicit and self.params.beam_center_y_explicit:
+            self.log_print("Beam centre: both coordinates given explicitly; skipping detection")
+            return None
+
+        detector = BeamCenterDetector(config_x, config_y, self.log_print)
+
+        outcome = None
+        probe = self._probe_frames(data, is_multiframe, filename,
+                                   select_probe_frames(start_frame, end_frame))
+        if probe:
+            outcome = detector.detect(probe)
+
+        if outcome is None:
+            fallback = self._probe_frames(data, is_multiframe, filename,
+                                          select_fallback_frames(start_frame, end_frame))
+            if fallback:
+                self.log_print("Beam centre: retrying at the 25%/75% frame positions")
+                outcome = detector.detect(fallback)
+
+        write_provenance(outcome, output_dir, config_x, config_y)
+
+        if outcome is None:
+            self.log_print(f"Beam centre: detection failed; keeping configured "
+                           f"ORGX/ORGY {config_x} {config_y}")
+            return None
+
+        self.log_print(
+            f"Beam centre: detected ORGX/ORGY {outcome.x} {outcome.y} "
+            f"(config {config_x} {config_y}, shift {outcome.x - config_x:+d} "
+            f"{outcome.y - config_y:+d} px) via {outcome.method}, "
+            f"confidence {outcome.confidence:.2f}, {outcome.n_frames_used} frame(s), "
+            f"spread {outcome.spread_px:.2f} px")
+        return outcome.x, outcome.y
+
     def _process_movie_data(self, sample_movie: str, distance: str,
                         rotation: str, exposure: str, resolution_range: float,
                         test_resolution_range: float, filename: str,
@@ -323,6 +399,28 @@ class CrystallographyProcessor:
             step3_msg = "quality-based frame selection" if self.params.quality_analysis else "standard frame processing"
             self.log_print(f"\nStep 3: Creating XDS.INP with {step3_msg}")
 
+            # Per-dataset beam centre (experimental, opt-in).
+            beam_center_x = self.params.beam_center_x
+            beam_center_y = self.params.beam_center_y
+            if self.params.beam_center:
+                self.log_print("\nStep 2b: Detecting beam centre from the data (EXPERIMENTAL)")
+                detected = self._detect_beam_center(
+                    data, is_multiframe, filename, start_frame, end_frame, auto_process_dir)
+                if detected is not None:
+                    if not self.params.beam_center_x_explicit:
+                        beam_center_x = detected[0]
+                    if not self.params.beam_center_y_explicit:
+                        beam_center_y = detected[1]
+                    # The resolution limits are derived FROM the beam centre, so a detected
+                    # centre invalidates the values computed earlier against the config.
+                    recomputed = self.calculate_resolution_ranges(
+                        distance, beam_center_x, beam_center_y)
+                    if recomputed is not None:
+                        resolution_range, test_resolution_range = recomputed
+                        self.log_print(
+                            f"Resolution limits recomputed for the detected centre: "
+                            f"{resolution_range} A (test {test_resolution_range} A)")
+
             # Per-dataset rotation axis. Resolved here rather than in self.params because one
             # processor instance handles every movie in the run -- see XDSManager.create_xds_input.
             rotation_axis, axis_message = resolve_rotation_axis(
@@ -336,6 +434,8 @@ class CrystallographyProcessor:
 
             params = {
                 'rotation_axis': rotation_axis,
+                'beam_center_x': beam_center_x,
+                'beam_center_y': beam_center_y,
                 'distance': distance,
                 'rotation': rotation,
                 'exposure': exposure,
@@ -521,15 +621,22 @@ class CrystallographyProcessor:
 
         return (sample_movie, distance, rotation, exposure)  # Return as a tuple
 
-    def calculate_resolution_ranges(self, distance: str) -> Optional[Tuple[float, float]]:
+    def calculate_resolution_ranges(self, distance: str,
+                                    beam_center_x: Optional[int] = None,
+                                    beam_center_y: Optional[int] = None) -> Optional[Tuple[float, float]]:
         """Calculate resolution ranges based on perpendicular distance from beam center to frame edges.
 
         Args:
             distance: Detector distance in mm
+            beam_center_x: Optional beam centre override. The resolution limits depend on the
+                beam centre, so a detected centre (--beam-center) requires recomputing them.
+            beam_center_y: As above.
 
         Returns:
             Tuple of (resolution_range, test_resolution_range) or None if calculation fails
         """
+        center_x = self.params.beam_center_x if beam_center_x is None else beam_center_x
+        center_y = self.params.beam_center_y if beam_center_y is None else beam_center_y
         try:
             # Check if manual resolution range is provided
             if self.params.res_range is not None:
@@ -544,13 +651,13 @@ class CrystallographyProcessor:
             edge_distances = []
 
             # Distance to left/right edges
-            dx_left = abs(0 - self.params.beam_center_x)
-            dx_right = abs(self.params.frame_size - self.params.beam_center_x)
+            dx_left = abs(0 - center_x)
+            dx_right = abs(self.params.frame_size - center_x)
             edge_distances.append(min(dx_left, dx_right) * self.params.pixel_size)
 
             # Distance to top/bottom edges
-            dy_top = abs(0 - self.params.beam_center_y)
-            dy_bottom = abs(self.params.frame_size - self.params.beam_center_y)
+            dy_top = abs(0 - center_y)
+            dy_bottom = abs(self.params.frame_size - center_y)
             edge_distances.append(min(dy_top, dy_bottom) * self.params.pixel_size)
 
             # Find minimum perpendicular distance to any edge

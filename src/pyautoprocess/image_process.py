@@ -6,6 +6,8 @@ Handles pre-converted TIF images in existing directory structure
 import os
 import re
 import shutil
+
+import tifffile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,6 +16,12 @@ from typing import List, Optional, Tuple
 
 from .autoprocess import CrystallographyProcessor
 from .config.parameters import ProcessingParameters
+from .core.beam_center_detector import (
+    BeamCenterDetector,
+    select_fallback_frames,
+    select_probe_frames,
+    write_provenance,
+)
 from .core.rotation_axis import resolve_rotation_axis
 from .quality_analyzer import DiffractionQualityAnalyzer
 from .ui.cli_parser import parse_image_process_arguments
@@ -217,8 +225,22 @@ class PreConvertedProcessor:
             # Check if we have oscillation range from XDS.INP
             oscillation_range = metadata[4] if metadata and len(metadata) > 4 else None
 
+            # Per-dataset beam centre (experimental, opt-in). Detected BEFORE the resolution
+            # limits, which are derived from the beam centre.
+            beam_center_x = self.params.beam_center_x
+            beam_center_y = self.params.beam_center_y
+            if getattr(self.params, 'beam_center', False):
+                self.processor.log_print("\nDetecting beam centre from the images (EXPERIMENTAL)")
+                detected = self._detect_beam_center(sample_path, int(image_number))
+                if detected is not None:
+                    if not self.params.beam_center_x_explicit:
+                        beam_center_x = detected[0]
+                    if not self.params.beam_center_y_explicit:
+                        beam_center_y = detected[1]
+
             # Calculate resolution ranges using parsed or existing detector distance
-            ranges = self.processor.calculate_resolution_ranges(actual_distance)
+            ranges = self.processor.calculate_resolution_ranges(
+                actual_distance, beam_center_x, beam_center_y)
             if ranges is None:
                 self.processor.log_print("Could not calculate resolution ranges")
                 return
@@ -265,6 +287,8 @@ class PreConvertedProcessor:
             # Create initial XDS.INP with .tif extension - we'll modify it later
             params = {
                 'rotation_axis': self._resolve_rotation_axis(sample_path),
+                'beam_center_x': beam_center_x,
+                'beam_center_y': beam_center_y,
                 'distance': actual_distance,
                 'rotation': actual_rotation,
                 'exposure': actual_exposure,
@@ -471,6 +495,72 @@ class PreConvertedProcessor:
         except Exception as e:
             self.processor.log_print(f"Error running quality analysis: {str(e)}")
             return None
+
+    def _detect_beam_center(self, sample_path: Path, image_count: int) -> Optional[Tuple[int, int]]:
+        """Detect the beam centre from the already-converted images.
+
+        Unlike autoprocess there is no orientation caveat here: these ARE the files XDS reads,
+        so whatever flip happened at conversion time is already baked in.
+
+        Frames are taken by position in the sorted listing rather than by reconstructing a
+        filename, since pre-converted images do not always use the 3-digit numbering autoprocess
+        writes. Returns (x, y) in XDS 1-based convention, or None to keep the configured centre.
+        """
+        if self.params.smv:
+            self.processor.log_print(
+                "Beam centre: detection is not supported for SMV (.img) input; "
+                "keeping the configured ORGX/ORGY")
+            return None
+
+        config_x, config_y = self.params.beam_center_x, self.params.beam_center_y
+        if self.params.beam_center_x_explicit and self.params.beam_center_y_explicit:
+            self.processor.log_print("Beam centre: both coordinates given explicitly; skipping detection")
+            return None
+
+        image_files = sorted((sample_path / "images").glob("*.tif"))
+        if not image_files:
+            self.processor.log_print("Beam centre: no TIF images found; keeping the configured ORGX/ORGY")
+            return None
+
+        def load(numbers) -> dict:
+            frames = {}
+            for number in numbers:
+                if not 1 <= number <= len(image_files):
+                    continue
+                try:
+                    frames[number] = tifffile.imread(str(image_files[number - 1]))
+                except Exception as error:
+                    self.processor.log_print(
+                        f"Beam centre: could not read frame {number} "
+                        f"({image_files[number - 1].name}): {error}")
+            return frames
+
+        detector = BeamCenterDetector(config_x, config_y, self.processor.log_print)
+
+        outcome = None
+        probe = load(select_probe_frames(1, image_count))
+        if probe:
+            outcome = detector.detect(probe)
+        if outcome is None:
+            fallback = load(select_fallback_frames(1, image_count))
+            if fallback:
+                self.processor.log_print("Beam centre: retrying at the 25%/75% frame positions")
+                outcome = detector.detect(fallback)
+
+        write_provenance(outcome, sample_path / self.OUTPUT_FOLDER, config_x, config_y)
+
+        if outcome is None:
+            self.processor.log_print(
+                f"Beam centre: detection failed; keeping configured ORGX/ORGY {config_x} {config_y}")
+            return None
+
+        self.processor.log_print(
+            f"Beam centre: detected ORGX/ORGY {outcome.x} {outcome.y} "
+            f"(config {config_x} {config_y}, shift {outcome.x - config_x:+d} "
+            f"{outcome.y - config_y:+d} px) via {outcome.method}, "
+            f"confidence {outcome.confidence:.2f}, {outcome.n_frames_used} frame(s), "
+            f"spread {outcome.spread_px:.2f} px")
+        return outcome.x, outcome.y
 
     def _find_source_movie(self, sample_path: Path) -> Optional[Path]:
         """Locate the raw movie sitting beside the sample folder, if it is still there.
