@@ -14,7 +14,8 @@ COMMON_ARGS = {
     'signal_pixel', 'min_pixel', 'background_pixel', 'pixel_size',
     'wavelength', 'beam_center_x', 'beam_center_y', 'file_extension',
     'detector_distance', 'exposure', 'rotation', 'pointless', 'parallel',
-    'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel', 'background_range'
+    'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel', 'background_range',
+    'auto_rotation_axis'
 }
 
 AUTOPROCESS_ONLY_ARGS = {'reprocess', 'sample_id'}
@@ -159,6 +160,13 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           action='store_true',
                           help='Enable diffraction quality analysis and frame selection')
 
+    add_argument_if_needed('auto_rotation_axis', '--auto-rotation-axis',
+                          action='store_true',
+                          help='EXPERIMENTAL: derive the rotation-axis sign from the tilt-direction '
+                               'token in the filename (e.g. P50toN-50). A PtoN sweep keeps the axis '
+                               'as configured; an NtoP sweep negates it. Falls back to the configured '
+                               'axis when no token is present. Off by default.')
+
     add_argument_if_needed('verbose', '--verbose',
                           action='store_true',
                           help='Enable verbose logging for detailed conversion validation')
@@ -247,6 +255,7 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['pointless'] = get_arg_value('pointless', False)
     params['parallel'] = get_arg_value('parallel', False)
     params['quality_analysis'] = get_arg_value('dqa', False)
+    params['auto_rotation_axis'] = get_arg_value('auto_rotation_axis', False)
     params['paths'] = get_arg_value('paths', [])
     params['reprocess'] = get_arg_value('reprocess', False)
     params['verbose'] = get_arg_value('verbose', False)

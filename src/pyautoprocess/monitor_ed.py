@@ -15,6 +15,7 @@ from subprocess import PIPE, run
 from typing import Dict, List, Optional, Set
 
 from .config.config_manager import ConfigLoader
+from .core.filename_parser import looks_numeric
 from .ui.display_manager import DisplayManager
 
 # Supported movie file extensions
@@ -121,18 +122,8 @@ class MonitorED:
 
     @staticmethod
     def _looks_numeric(value: str) -> bool:
-        """Check if a string looks like a number, allowing 'p' as decimal separator.
-
-        Accepts: '960', '0.3', '1p5', '0p6'
-        Rejects: 'movie', 'bin4', 'g8sp7'
-        """
-        # Replace 'p' with '.' to normalize, then check if it's a valid float
-        normalized = value.replace("p", ".")
-        try:
-            float(normalized)
-            return True
-        except ValueError:
-            return False
+        """Retained as a thin alias; the grammar itself lives in core.filename_parser."""
+        return looks_numeric(value)
 
     @classmethod
     def validate_movie_filename(cls, filename: str) -> bool:

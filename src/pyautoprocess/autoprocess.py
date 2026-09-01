@@ -22,6 +22,7 @@ import numpy as np
 from .core.file_handler import FileHandler
 from .core.xds_manager import XDSManager
 from .core.process_tracker import ProcessTracker
+from .core.rotation_axis import resolve_rotation_axis
 from .config.parameters import ProcessingParameters
 from .ui.display_manager import DisplayManager
 from .ui.cli_parser import parse_autoprocess_arguments
@@ -321,7 +322,20 @@ class CrystallographyProcessor:
             # STEP 3: Create XDS.INP with frame ranges in auto_process directory
             step3_msg = "quality-based frame selection" if self.params.quality_analysis else "standard frame processing"
             self.log_print(f"\nStep 3: Creating XDS.INP with {step3_msg}")
+
+            # Per-dataset rotation axis. Resolved here rather than in self.params because one
+            # processor instance handles every movie in the run -- see XDSManager.create_xds_input.
+            rotation_axis, axis_message = resolve_rotation_axis(
+                self.params.rotation_axis,
+                filename,
+                enabled=self.params.auto_rotation_axis,
+                explicit=self.params.rotation_axis_explicit,
+            )
+            if axis_message:
+                self.log_print(axis_message)
+
             params = {
+                'rotation_axis': rotation_axis,
                 'distance': distance,
                 'rotation': rotation,
                 'exposure': exposure,
@@ -1512,7 +1526,10 @@ def main():
     # Log the current parameters being used
     processor.log_print("\nUsing processing parameters:")
     processor.log_print(f"Microscope: {params.microscope_config}")
-    processor.log_print(f"Rotation Axis: {params.rotation_axis}")
+    processor.log_print(f"Rotation Axis: {params.rotation_axis}"
+                        f"{' (base; may be flipped per dataset)' if params.auto_rotation_axis else ''}")
+    processor.log_print(f"Auto Rotation Axis: "
+                        f"{'Enabled (EXPERIMENTAL)' if params.auto_rotation_axis else 'Disabled'}")
     processor.log_print(f"Frame Size: {params.frame_size}")
     processor.log_print(f"File Extension: {params.file_extension}")
     processor.log_print(f"Signal Pixel: {params.signal_pixel}")

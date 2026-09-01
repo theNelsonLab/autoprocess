@@ -14,6 +14,7 @@ from typing import List, Optional, Tuple
 
 from .autoprocess import CrystallographyProcessor
 from .config.parameters import ProcessingParameters
+from .core.rotation_axis import resolve_rotation_axis
 from .quality_analyzer import DiffractionQualityAnalyzer
 from .ui.cli_parser import parse_image_process_arguments
 
@@ -263,6 +264,7 @@ class PreConvertedProcessor:
 
             # Create initial XDS.INP with .tif extension - we'll modify it later
             params = {
+                'rotation_axis': self._resolve_rotation_axis(sample_path),
                 'distance': actual_distance,
                 'rotation': actual_rotation,
                 'exposure': actual_exposure,
@@ -469,6 +471,43 @@ class PreConvertedProcessor:
         except Exception as e:
             self.processor.log_print(f"Error running quality analysis: {str(e)}")
             return None
+
+    def _find_source_movie(self, sample_path: Path) -> Optional[Path]:
+        """Locate the raw movie sitting beside the sample folder, if it is still there.
+
+        image_process normally works from a folder name, which carries no tilt-direction
+        token; the token lives in the original movie filename. When the movie has been moved
+        or deleted the direction is simply unknown, and the caller falls back to the config.
+        """
+        parent_dir = sample_path.parent
+        sample_name = sample_path.name
+        for extension in ('.mrc', '.ser', '.tvips'):
+            matches = sorted(parent_dir.glob(f"{sample_name}_*{extension}"))
+            if matches:
+                return matches[0]
+        return None
+
+    def _resolve_rotation_axis(self, sample_path: Path) -> str:
+        """Per-dataset rotation axis for this sample folder, logging how it was decided."""
+        base_axis = self.params.rotation_axis
+        if not getattr(self.params, 'auto_rotation_axis', False):
+            return base_axis
+
+        source_movie = self._find_source_movie(sample_path)
+        if source_movie is None:
+            self.processor.log_print(
+                f"Auto rotation axis: no raw .mrc/.ser/.tvips found beside {sample_path.name}, "
+                f"so the tilt direction is unknown; keeping axis '{base_axis}'")
+            return base_axis
+
+        axis, message = resolve_rotation_axis(
+            base_axis, source_movie.name,
+            enabled=True,
+            explicit=self.params.rotation_axis_explicit,
+        )
+        if message:
+            self.processor.log_print(message)
+        return axis
 
     def _parse_source_file_metadata(self, sample_path: Path) -> Optional[tuple]:
         """Parse metadata from MRC/SER file at parent level (same level as sample folder)"""
