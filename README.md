@@ -28,13 +28,13 @@ pip install .
 ## Requirements
 
 ### Python Dependencies
-- Python >= 3.8
+- Python >= 3.10
 - numpy ~= 2.0
 - mrcfile ~= 1.5
 - tifffile >= 2025.1.10
 - seremi == 0.0.1
 - scipy >= 1.7.0
-- scikit-image >= 0.19.0
+- scikit-image >= 0.25.0
 
 ### External Software Dependencies
 1. **XDS Software Suite**: Required for crystallographic data processing
@@ -104,6 +104,19 @@ Resolution Control:
   --res-range VALUE         Manual resolution range in Angstroms (overrides calculated values)
   --min-res VALUE          Minimum resolution for XSCALE in Angstroms (independent from XDS)
 
+Experimental Features (opt-in, off by default):
+  --auto-rotation-axis     Derive the rotation-axis sign from the tilt-direction token in the
+                           filename (e.g. P50toN-50, n60top10). A positive-to-negative sweep
+                           keeps the configured axis; a negative-to-positive sweep negates every
+                           component of it. Falls back to the configured axis, with the reason
+                           logged, whenever the direction cannot be established.
+  --beam-center            Detect the beam centre from the diffraction data and use it for
+                           ORGX/ORGY instead of the microscope-config value. Probes the first,
+                           middle and last frame of the processed range and combines them;
+                           falls back to the configured centre whenever the result is not
+                           trustworthy. Writes auto_process/beam_center.LP recording how the
+                           value was chosen.
+
 Advanced XDS Parameters:
   --friedel BOOL           Set Friedel's law for XDS (true or false, default: true)
 ```
@@ -168,6 +181,19 @@ Experimental Parameters Override:
 Resolution Control:
   --res-range VALUE         Manual resolution range in Angstroms (overrides calculated values)
   --min-res VALUE          Minimum resolution for XSCALE in Angstroms (independent from XDS)
+
+Experimental Features (opt-in, off by default):
+  --auto-rotation-axis     Derive the rotation-axis sign from the tilt-direction token in the
+                           filename (e.g. P50toN-50, n60top10). A positive-to-negative sweep
+                           keeps the configured axis; a negative-to-positive sweep negates every
+                           component of it. Falls back to the configured axis, with the reason
+                           logged, whenever the direction cannot be established.
+  --beam-center            Detect the beam centre from the diffraction data and use it for
+                           ORGX/ORGY instead of the microscope-config value. Probes the first,
+                           middle and last frame of the processed range and combines them;
+                           falls back to the configured centre whenever the result is not
+                           trustworthy. Writes auto_process/beam_center.LP recording how the
+                           value was chosen.
 
 Advanced XDS Parameters:
   --friedel BOOL           Set Friedel's law for XDS (true or false, default: true)
@@ -394,6 +420,54 @@ Examples:
   tvips2tif --recursive --raw --folder /microscopy/data
 ```
 
+## Experimental Features
+
+Both features below are **opt-in and off by default**, and both fall back to the microscope
+configuration whenever they cannot produce a trustworthy answer. Neither can ever leave you with
+a guessed value: the fallback is always the configured one, and the reason is always logged.
+
+### --auto-rotation-axis
+
+The XDS rotation axis depends on which way the goniometer swept, and the sweep is recorded in the
+filename as a whole underscore field: `P50toN-50`, `n60top10`, `p70to0`, `N40toP40`. A
+positive-to-negative sweep uses the configured axis unchanged; a negative-to-positive sweep uses
+its negation -- every component, not just x (`-0.8290 -0.5592 0` becomes `0.8290 0.5592 0`).
+
+The direction is decided by arithmetic on the signed angles rather than by reading the letters,
+so `0toP25`, `P25to0` and `P50toN0` all resolve correctly. The letter carries the sign, making
+the minus in `N-50` redundant.
+
+**Scope, honestly:** across 199,606 movie filenames in the lab's archive, 880 carry a direction
+token, and only 21 of those are negative-to-positive. So this flag changes nothing for the vast
+majority of datasets -- it logs "no tilt-direction token, keeping configured axis" and moves on.
+The flip path is supported by relatively few crystals in one detector family, and no
+negative-to-positive `.mrc` dataset is known to exist, so that combination is untested. The log
+says so loudly whenever a flip actually happens; check the indexing result when it does.
+
+### --beam-center
+
+Estimates the direct-beam position from the frames themselves rather than trusting the
+per-microscope constant. The estimator registers the pattern against its own 180-degree rotation
+(Friedel centrosymmetry), so it does not assume the beam is the brightest feature -- which
+matters when a beam stop makes the centre dark.
+
+The first, middle and last frame of the processed range are probed, because either end of a movie
+can be blank. Results below a confidence threshold are discarded, survivors are combined, and
+frames that disagree with each other are rejected outright. If all three fail, the 25% and 75%
+positions are tried before giving up.
+
+Notes and limits:
+- The result is anchored to the configured centre and bounded to about +/-100 px around it, so
+  this **refines a roughly-right configuration; it cannot rescue a badly wrong one.** A grossly
+  wrong config value shows up as "detection failed", not as a correction.
+- Explicit `--beam-center-x` / `--beam-center-y` take precedence, per axis. Supplying only one
+  lets detection supply the other; supplying both skips detection entirely.
+- Adds roughly 3 seconds per dataset.
+- Not supported for SMV (`.img`) input in `image_process`.
+- Every run writes `auto_process/beam_center.LP` with the method, confidence, frame count,
+  cross-frame spread, unrounded value and shift from the configured centre -- including when it
+  falls back, since knowing the attempt was made and declined is the useful record later.
+
 ## File Naming Convention
 ### For .mrc/.ser/.tvips Files
 ```
@@ -451,6 +525,21 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.5.0**: Experimental auto-detection, plus two correctness fixes
+  - New opt-in `--auto-rotation-axis`: derives the rotation-axis sign from the tilt-direction
+    token in the filename, per dataset, falling back to the configured axis
+  - New opt-in `--beam-center`: detects the beam centre from the data, falling back to the
+    configured value, and records its reasoning in `auto_process/beam_center.LP`
+  - Fixed `F30-TVIPS-SM` rotation axis, which had a sign error (`-0.8290 0.5592 0` ->
+    `-0.8290 -0.5592 0`). Determined by running all four sign combinations through XDS on three
+    datasets: the shipped value FAILED TO INDEX ENTIRELY on all three, so this configuration was
+    unusable without a manual `--rotation-axis` override
+  - Fixed a missing `import json` in autoprocess.py that made every processor construction
+    silently fail to load the Bravais-lattice data, papered over by three separate workarounds
+  - Rotation axis and beam centre can now vary per dataset within a single run, instead of being
+    fixed for the whole invocation
+  - Minimum Python raised to 3.10 and scikit-image to 0.25 (the previous `>=3.8` claim was
+    already unsatisfiable, since `numpy~=2.0` does not support 3.8)
 - **v0.4.2**: `--id` flag for sample-name override in autoprocess
   - New `--id SAMPLE_ID` flag (autoprocess only) overrides the sample name parsed from the filename
   - With `--id`, files that lack the conventional `sample_distance_rotation_exposure` underscore structure are still processed, provided the missing numeric fields can be supplied via CLI flags or microscope config defaults
