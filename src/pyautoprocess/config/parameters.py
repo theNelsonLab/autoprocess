@@ -35,6 +35,11 @@ class ProcessingParameters:
     verbose: bool = False
     res_range: Optional[float] = None
     min_res: Optional[float] = None
+    # Was the value supplied explicitly on the command line, as opposed to inherited from the
+    # microscope config? Needed so opt-in auto-detection knows not to override a deliberate choice.
+    rotation_axis_explicit: bool = False
+    beam_center_x_explicit: bool = False
+    beam_center_y_explicit: bool = False
     background_range_start: Optional[int] = None
     background_range_end: Optional[int] = None
     sample_id: Optional[str] = None

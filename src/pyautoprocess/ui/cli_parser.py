@@ -96,8 +96,8 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           help='Path to microscope configuration file')
 
     add_argument_if_needed('rotation_axis', '--rotation-axis',
-                          type=str, default=config.rotation_axis,
-                          help='Override rotation axis')
+                          type=str, default=None,
+                          help=f'Override rotation axis (microscope config: {config.rotation_axis})')
 
     add_argument_if_needed('frame_size', '--frame-size',
                           type=int, default=config.frame_size,
@@ -124,12 +124,12 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           help='Override wavelength value')
 
     add_argument_if_needed('beam_center_x', '--beam-center-x',
-                          type=int, default=config.beam_center_x,
-                          help='Override beam center X coordinate')
+                          type=int, default=None,
+                          help=f'Override beam center X coordinate (microscope config: {config.beam_center_x})')
 
     add_argument_if_needed('beam_center_y', '--beam-center-y',
-                          type=int, default=config.beam_center_y,
-                          help='Override beam center Y coordinate')
+                          type=int, default=None,
+                          help=f'Override beam center Y coordinate (microscope config: {config.beam_center_y})')
 
     add_argument_if_needed('file_extension', '--file-extension',
                           type=str, default=config.file_extension,
@@ -216,15 +216,24 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
         return default
 
     # Populate parameters conditionally
-    params['rotation_axis'] = get_arg_value('rotation_axis', config.rotation_axis)
+    # These three may be auto-detected per dataset by opt-in features, so record whether the
+    # user asked for a specific value (which auto-detection must not override) or merely
+    # inherited the microscope-config default (which it may).
+    _cli_rotation_axis = get_arg_value('rotation_axis', None)
+    params['rotation_axis'] = config.rotation_axis if _cli_rotation_axis is None else _cli_rotation_axis
+    params['rotation_axis_explicit'] = _cli_rotation_axis is not None
     params['frame_size'] = get_arg_value('frame_size', config.frame_size)
     params['signal_pixel'] = get_arg_value('signal_pixel', config.signal_pixel)
     params['min_pixel'] = get_arg_value('min_pixel', config.min_pixel)
     params['background_pixel'] = get_arg_value('background_pixel', config.background_pixel)
     params['pixel_size'] = get_arg_value('pixel_size', config.pixel_size)
     params['wavelength'] = get_arg_value('wavelength', config.wavelength)
-    params['beam_center_x'] = get_arg_value('beam_center_x', config.beam_center_x)
-    params['beam_center_y'] = get_arg_value('beam_center_y', config.beam_center_y)
+    _cli_beam_center_x = get_arg_value('beam_center_x', None)
+    _cli_beam_center_y = get_arg_value('beam_center_y', None)
+    params['beam_center_x'] = config.beam_center_x if _cli_beam_center_x is None else _cli_beam_center_x
+    params['beam_center_y'] = config.beam_center_y if _cli_beam_center_y is None else _cli_beam_center_y
+    params['beam_center_x_explicit'] = _cli_beam_center_x is not None
+    params['beam_center_y_explicit'] = _cli_beam_center_y is not None
     params['file_extension'] = get_arg_value('file_extension', config.file_extension)
     params['value_range_min'] = get_arg_value('value_range_min', config.value_range_min)
     params['value_range_max'] = get_arg_value('value_range_max', config.value_range_max)

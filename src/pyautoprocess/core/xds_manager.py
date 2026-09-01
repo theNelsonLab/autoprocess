@@ -18,8 +18,23 @@ class XDSManager:
         print(message)
 
     def create_xds_input(self, data_path: str, params: dict) -> str:
-        """Generate XDS.INP configuration with provided parameters"""
+        """Generate XDS.INP configuration with provided parameters.
+
+        Per-dataset values may be supplied through `params` for the few fields that can vary
+        between movies inside a single run (rotation axis, beam centre). One processor instance
+        loops over every movie, so `self.params` is SHARED state -- writing a per-dataset value
+        there would leak it into the next movie. Passing it through `params` keeps it per-call.
+        Absent or None keys fall back to the shared configuration.
+        """
         data_range, spot_range, background_range = self._get_frame_ranges(params)
+
+        def _per_dataset(key: str):
+            value = params.get(key)
+            return getattr(self.params, key) if value is None else value
+
+        rotation_axis = _per_dataset('rotation_axis')
+        beam_center_x = _per_dataset('beam_center_x')
+        beam_center_y = _per_dataset('beam_center_y')
 
         # Use parsed oscillation range if available, otherwise calculate from exposure * rotation
         oscillation_range = (params.get('oscillation_range') or
@@ -28,7 +43,7 @@ class XDSManager:
         template = f"""JOB= XYCORR INIT COLSPOT IDXREF DEFPIX INTEGRATE CORRECT
 !JOB=DEFPIX INTEGRATE CORRECT
 !JOB= CORRECT
-ORGX= {self.params.beam_center_x} ORGY= {self.params.beam_center_y}
+ORGX= {beam_center_x} ORGY= {beam_center_y}
 DETECTOR_DISTANCE= {float(params['distance'])}
 OSCILLATION_RANGE= {oscillation_range}
 X-RAY_WAVELENGTH= {self.params.wavelength}
@@ -48,7 +63,7 @@ VALUE_RANGE_FOR_TRUSTED_DETECTOR_PIXELS={self.params.value_range_min} {self.para
 DETECTOR= ADSC MINIMUM_VALID_PIXEL_VALUE= 1 OVERLOAD= 65535
 SENSOR_THICKNESS= 0.01
 NX= {self.params.frame_size} NY= {self.params.frame_size} QX= {self.params.pixel_size} QY= {self.params.pixel_size}
-ROTATION_AXIS={self.params.rotation_axis}
+ROTATION_AXIS={rotation_axis}
 DIRECTION_OF_DETECTOR_X-AXIS=1 0 0
 DIRECTION_OF_DETECTOR_Y-AXIS=0 1 0
 INCIDENT_BEAM_DIRECTION=0 0 1
