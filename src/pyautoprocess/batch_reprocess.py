@@ -97,17 +97,6 @@ class BatchProcessor:
         self.processor = CrystallographyProcessor(microscope_params)
         self.current_path = Path.cwd()
 
-        # Fix empty bravais_data if needed
-        if not self.processor.bravais_data:
-            try:
-                import json
-                bravais_path = Path(__file__).parent / "data" / "bravais_lattices.json"
-                if bravais_path.exists():
-                    with open(bravais_path, 'r') as f:
-                        self.processor.bravais_data = json.load(f)
-            except Exception as e:
-                self.processor.log_print(f"Warning: Could not load bravais_lattices.json: {e}")
-
         # Disable space group optimization in batch processing mode
         self.processor.disable_space_group_optimization = True
 

@@ -3,6 +3,7 @@ Crystallography data processing script
 Originally by Jessica Burch, modified by Dmitry Eremin
 Refactored version with modular architecture
 """
+import json
 import os
 import random
 import re
@@ -599,7 +600,9 @@ class CrystallographyProcessor:
             bravais_path = Path(__file__).parent / "data" / "bravais_lattices.json"
             with open(bravais_path, 'r') as f:
                 return json.load(f)
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
+            # Deliberately narrow: a bare `except Exception` here previously swallowed a
+            # NameError from the missing `import json` on every single construction.
             self.log_print(f"Warning: Could not load bravais_lattices.json: {e}")
             return {}
 
@@ -684,18 +687,7 @@ class CrystallographyProcessor:
     def get_bravais_for_space_group(self, space_group: int) -> Optional[str]:
         """Get Bravais lattice type for given space group number"""
         if "crystal_systems" not in self.bravais_data:
-            # Force reload the data if it wasn't loaded during initialization
-            try:
-                import json
-                bravais_path = Path(__file__).parent / "data" / "bravais_lattices.json"
-                if bravais_path.exists():
-                    with open(bravais_path, 'r') as f:
-                        self.bravais_data = json.load(f)
-            except Exception:
-                pass
-
-            if "crystal_systems" not in self.bravais_data:
-                return None
+            return None
 
         for crystal_system, cs_data in self.bravais_data["crystal_systems"].items():
             if "bravais_types" in cs_data:
@@ -707,18 +699,7 @@ class CrystallographyProcessor:
     def get_minimal_space_group_for_bravais(self, bravais: str) -> Optional[int]:
         """Get minimal (first) space group number for given Bravais lattice"""
         if "crystal_systems" not in self.bravais_data:
-            # Force reload the data if it wasn't loaded during initialization
-            try:
-                import json
-                bravais_path = Path(__file__).parent / "data" / "bravais_lattices.json"
-                if bravais_path.exists():
-                    with open(bravais_path, 'r') as f:
-                        self.bravais_data = json.load(f)
-            except Exception:
-                pass
-
-            if "crystal_systems" not in self.bravais_data:
-                return None
+            return None
 
         for crystal_system, cs_data in self.bravais_data["crystal_systems"].items():
             if "bravais_types" in cs_data:
