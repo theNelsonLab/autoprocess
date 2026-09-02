@@ -464,10 +464,34 @@ can be blank. Results below a confidence threshold are discarded, survivors are 
 frames that disagree with each other are rejected outright. If all three fail, the 25% and 75%
 positions are tried before giving up.
 
+**When it actually helps (measured, 12 datasets):**
+
+Use it when indexing is poor or the configured beam centre is suspect. Do **not** expect it to
+improve a run that already works.
+
+The estimator is accurate: where it fires, it lands 0.8-5.8 px from the beam position XDS itself
+refines to, against 11.6-83.1 px for the configured default -- a median error of roughly 2 px
+versus 20 px. But that accuracy usually does not change the result, because **XDS refines the
+beam centre itself and converges to the same answer regardless of where it starts.** Across the
+test set, the refined position reached from the configured centre and from the detected centre
+agreed to 0.0-0.6 px. The starting value is effectively discarded.
+
+So the honest summary is: quality-neutral on most datasets (5 flat, 1 better, 1 worse across the
+set), with two cases where it mattered:
+
+- `ss-jacobsen-mov16`, configured centre 27.5 px off: Rmeas 24.2% -> 19.0%, I/sigma 3.23 -> 4.23.
+- `Grossular-mov2`, configured centre 83 px off: the only dataset where XDS's refinement DIVERGED
+  from the configured start (to a position ~80 px away), while the detected start kept it sane.
+  Rmeas 133% -> 107% -- still unusable, but it is the difference between lost and merely bad.
+
 Notes and limits:
 - The result is anchored to the configured centre and bounded to about +/-100 px around it, so
   this **refines a roughly-right configuration; it cannot rescue a badly wrong one.** A grossly
   wrong config value shows up as "detection failed", not as a correction.
+- Detection sometimes declines on exactly the datasets that would benefit: two datasets whose
+  configured centre was 20-30 px off fell back rather than detecting. The confidence gate is
+  deliberately conservative, and falling back is always safe, but it means the feature does not
+  yet reliably catch the case it is best suited to.
 - Explicit `--beam-center-x` / `--beam-center-y` take precedence, per axis. Supplying only one
   lets detection supply the other; supplying both skips detection entirely.
 - Adds roughly 3 seconds per dataset.
@@ -564,7 +588,9 @@ This project is licensed under the GPL-3.0-or-later License.
   - New opt-in `--auto-rotation-axis`: derives the rotation-axis sign from the tilt-direction
     token in the filename, per dataset, falling back to the configured axis
   - New opt-in `--beam-center`: detects the beam centre from the data, falling back to the
-    configured value, and records its reasoning in `auto_process/beam_center.LP`
+    configured value, and records its reasoning in `auto_process/beam_center.LP`. Measured as
+    quality-neutral on most datasets, since XDS refines the centre itself; useful mainly where
+    the configured centre is far enough off to send that refinement astray
   - Fixed `F30-TVIPS-SM` rotation axis, which had a sign error (`-0.8290 0.5592 0` ->
     `-0.8290 -0.5592 0`). Determined by running all four sign combinations through XDS on three
     datasets: the shipped value FAILED TO INDEX ENTIRELY on all three, so this configuration was
