@@ -950,7 +950,12 @@ class PreConvertedProcessor:
         if hasattr(self.params, 'paths') and self.params.paths:
             # Process provided paths
             for path_str in self.params.paths:
-                path = Path(path_str).resolve()
+                # os.path.abspath, deliberately NOT Path.resolve(): resolve() follows symlinks,
+                # and every output directory is created next to the SOURCE path. Resolving makes
+                # a symlinked input write into the link's target directory instead -- silently,
+                # and often somewhere the user believes is read-only. abspath normalises '..' and
+                # absolutises without following links.
+                path = Path(os.path.abspath(path_str))
 
                 if not path.exists():
                     self.processor.log_print(f"Warning: Path does not exist: {path}")

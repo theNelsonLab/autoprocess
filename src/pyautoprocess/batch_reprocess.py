@@ -618,7 +618,9 @@ class BatchProcessor:
         if path is None:
             target_path = self.current_path
         else:
-            target_path = Path(path).resolve()
+            # abspath, not resolve(): reprocessed subfolders are created inside the dataset
+            # directory, so resolving would redirect them into a symlink's target.
+            target_path = Path(os.path.abspath(path))
 
         # Check if the path is a single auto_process directory
         if self._is_autoprocess_directory(target_path):

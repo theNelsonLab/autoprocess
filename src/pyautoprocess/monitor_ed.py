@@ -49,7 +49,11 @@ class MonitorED:
         self.watch_subdirs = watch_subdirs
         self.timeout = timeout
         self.expect_count = expect_count
-        self.working_directory = Path(working_directory).resolve()
+        # abspath, not resolve(): scan paths derived from this are handed to the child
+        # autoprocess/image_process, which writes its output beside them. Resolving would
+        # redirect that output into a symlink's target. The per-file identifiers below DO
+        # resolve, deliberately -- there identity is the point, not location.
+        self.working_directory = Path(os.path.abspath(working_directory))
 
         self.state = MonitorState.SCANNING
         self.processed_files: Set[str] = set()
