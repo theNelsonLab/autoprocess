@@ -525,6 +525,10 @@ unaffected either way -- they never enter the retry loop.
 Recommended whenever a result needs to be reproducible: a published structure, a regression
 comparison, or any dataset whose log shows "Screening new indexing values".
 
+A seed makes **failure** reproducible too. If a seeded run fails to index, re-running with the
+same seed repeats that failure exactly -- try a different seed, or drop the flag, to let the
+retry search explore other parameters.
+
 ## File Naming Convention
 ### For .mrc/.ser/.tvips Files
 ```

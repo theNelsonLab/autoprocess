@@ -166,7 +166,10 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                                'reproduces exactly. Without it those retries use random parameters, '
                                'so a dataset that fails first-pass indexing can give a DIFFERENT '
                                'space group and unit cell on every run. Seeded per dataset, so the '
-                               'result does not depend on how many movies preceded it.')
+                               'result does not depend on how many movies preceded it. Note that a '
+                               'seed makes failure reproducible too: if a seeded run fails to index, '
+                               're-running with the SAME seed repeats it exactly - try a different '
+                               'seed, or drop the flag, to explore other retry parameters.')
 
     add_argument_if_needed('beam_center', '--beam-center',
                           action='store_true',
