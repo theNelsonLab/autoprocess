@@ -81,6 +81,27 @@ class CrystallographyProcessor:
         # Flag to track if space group was corrected (need to read from CORRECT.LP)
         self._space_group_corrected = False
 
+        # RNG for the indexing-retry search (see _handle_missing_xparm). Replaced per dataset
+        # by reseed_for_dataset(); this initial value covers callers that drive process_check()
+        # directly, such as image_process and batch_reprocess.
+        self._rng = random.Random() if params.seed is None else random.Random(params.seed)
+
+    def reseed_for_dataset(self, sample_movie: str) -> None:
+        """Reseed the indexing-retry RNG for one dataset.
+
+        Seeded per DATASET rather than per run, so a movie reproduces identically no matter how
+        many others preceded it in the same invocation -- otherwise `autoprocess a.mrc b.mrc`
+        and `autoprocess b.mrc` would give b different retry parameters.
+
+        Without --seed this stays unseeded, i.e. exactly the historical behaviour.
+        """
+        if self.params.seed is None:
+            self._rng = random.Random()
+        else:
+            self._rng = random.Random(f"{self.params.seed}:{sample_movie}")
+            self.log_print(f"Indexing retries seeded with --seed {self.params.seed} "
+                           f"(deterministic for this dataset)")
+
     def _get_processed_files_log_path(self) -> Path:
         """Get path to the processed files tracking log - delegates to ProcessTracker"""
         return self.process_tracker.get_processed_files_log_path()
@@ -1148,9 +1169,9 @@ class CrystallographyProcessor:
             with open('XDS.INP', 'r+') as f:
                 lines = f.readlines()
 
-                bkgrnd_pix = random.randrange(3, 5, 1)
-                s_pix = random.randrange(4, 9, 1)
-                min_pix = random.randrange(5, 9, 1)
+                bkgrnd_pix = self._rng.randrange(3, 5, 1)
+                s_pix = self._rng.randrange(4, 9, 1)
+                min_pix = self._rng.randrange(5, 9, 1)
 
                 for index, line in enumerate(lines):
                     if "BACKGROUND_PIXEL=" in line:
@@ -1593,6 +1614,7 @@ FRIEDEL'S_LAW=FALSE
         # (matches image_process behaviour; required for --reprocess to produce the same
         # workflow on re-runs).
         self._reset_auto_process_for_reprocessing(sample_movie, source_file_path)
+        self.reseed_for_dataset(sample_movie)
 
         # Log processing parameters for this movie
         self.log_print(f"\nProcessing parameters for {filename}:")

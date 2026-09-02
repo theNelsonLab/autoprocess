@@ -15,7 +15,7 @@ COMMON_ARGS = {
     'wavelength', 'beam_center_x', 'beam_center_y', 'file_extension',
     'detector_distance', 'exposure', 'rotation', 'pointless', 'parallel',
     'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel', 'background_range',
-    'auto_rotation_axis', 'beam_center'
+    'auto_rotation_axis', 'beam_center', 'seed'
 }
 
 AUTOPROCESS_ONLY_ARGS = {'reprocess', 'sample_id'}
@@ -160,6 +160,14 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           action='store_true',
                           help='Enable diffraction quality analysis and frame selection')
 
+    add_argument_if_needed('seed', '--seed',
+                          type=int, default=None,
+                          help='Seed the indexing-retry search so a failed first-pass indexing '
+                               'reproduces exactly. Without it those retries use random parameters, '
+                               'so a dataset that fails first-pass indexing can give a DIFFERENT '
+                               'space group and unit cell on every run. Seeded per dataset, so the '
+                               'result does not depend on how many movies preceded it.')
+
     add_argument_if_needed('beam_center', '--beam-center',
                           action='store_true',
                           help='EXPERIMENTAL: detect the beam centre from the diffraction frames '
@@ -264,6 +272,7 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['quality_analysis'] = get_arg_value('dqa', False)
     params['auto_rotation_axis'] = get_arg_value('auto_rotation_axis', False)
     params['beam_center'] = get_arg_value('beam_center', False)
+    params['seed'] = get_arg_value('seed', None)
     params['paths'] = get_arg_value('paths', [])
     params['reprocess'] = get_arg_value('reprocess', False)
     params['verbose'] = get_arg_value('verbose', False)

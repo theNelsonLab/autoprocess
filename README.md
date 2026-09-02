@@ -110,6 +110,10 @@ Experimental Features (opt-in, off by default):
                            keeps the configured axis; a negative-to-positive sweep negates every
                            component of it. Falls back to the configured axis, with the reason
                            logged, whenever the direction cannot be established.
+  --seed N                 Seed the indexing-retry search so a failed first-pass indexing
+                           reproduces exactly. Without it those retries use random parameters,
+                           so a dataset that fails first-pass indexing can return a different
+                           space group and unit cell on every run.
   --beam-center            Detect the beam centre from the diffraction data and use it for
                            ORGX/ORGY instead of the microscope-config value. Probes the first,
                            middle and last frame of the processed range and combines them;
@@ -188,6 +192,10 @@ Experimental Features (opt-in, off by default):
                            keeps the configured axis; a negative-to-positive sweep negates every
                            component of it. Falls back to the configured axis, with the reason
                            logged, whenever the direction cannot be established.
+  --seed N                 Seed the indexing-retry search so a failed first-pass indexing
+                           reproduces exactly. Without it those retries use random parameters,
+                           so a dataset that fails first-pass indexing can return a different
+                           space group and unit cell on every run.
   --beam-center            Detect the beam centre from the diffraction data and use it for
                            ORGX/ORGY instead of the microscope-config value. Probes the first,
                            middle and last frame of the processed range and combines them;
@@ -468,6 +476,31 @@ Notes and limits:
   cross-frame spread, unrounded value and shift from the configured centre -- including when it
   falls back, since knowing the attempt was made and declined is the useful record later.
 
+### --seed
+
+Not experimental, and unrelated to the two features above -- but worth understanding.
+
+When the first indexing attempt fails, autoprocess retries up to ten times with **randomly
+chosen** `BACKGROUND_PIXEL`, `SIGNAL_PIXEL` and `MINIMUM_NUMBER_OF_PIXELS_IN_A_SPOT` values.
+That is a reasonable search strategy, but it means such a dataset **is not reproducible**:
+reprocessing the same movie can return a different answer.
+
+This is not hypothetical. Four runs of one real dataset under a single unchanged version gave:
+
+| run | ISa | Rmeas | completeness | space group |
+|-----|-----|-------|--------------|-------------|
+| 1-4 | 1.06 - 3.39 | 72.9% - 257.2% | 42.5% - 90.0% | 1 or 5, different unit cell each time |
+
+Another dataset indexed successfully in only 1 of 4 attempts.
+
+`--seed N` pins that search without changing what it explores, so a run can be reproduced
+exactly. The seed is applied **per dataset**, so a movie's result does not depend on how many
+other movies preceded it in the same invocation. Datasets that index on the first attempt are
+unaffected either way -- they never enter the retry loop.
+
+Recommended whenever a result needs to be reproducible: a published structure, a regression
+comparison, or any dataset whose log shows "Screening new indexing values".
+
 ## File Naming Convention
 ### For .mrc/.ser/.tvips Files
 ```
@@ -525,7 +558,9 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
-- **v0.5.0**: Experimental auto-detection, plus two correctness fixes
+- **v0.5.0**: Experimental auto-detection, reproducibility, and correctness fixes
+  - New `--seed N`: makes the random indexing-retry search reproducible. Without it, a dataset
+    that fails first-pass indexing can return a different space group and unit cell on every run
   - New opt-in `--auto-rotation-axis`: derives the rotation-axis sign from the tilt-direction
     token in the filename, per dataset, falling back to the configured axis
   - New opt-in `--beam-center`: detects the beam centre from the data, falling back to the

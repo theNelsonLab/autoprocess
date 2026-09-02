@@ -390,6 +390,7 @@ class PreConvertedProcessor:
 
             # Run full autoprocess workflow (XDS + mosaicity + space group + scaling)
             self.processor.log_print(f"\nProcessing {sample_path.name}...\n")
+            self.processor.reseed_for_dataset(sample_path.name)
             self.processor.process_check(sample_path.name)
 
         except Exception as e:
