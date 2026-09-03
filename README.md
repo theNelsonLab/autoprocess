@@ -563,6 +563,24 @@ working_directory/
     └── (conversion log files)
 ```
 
+## Exit Codes
+
+`autoprocess` and `image_process` report the outcome through their exit status, so a wrapper
+script -- or `monitorED` -- can tell whether anything was actually produced:
+
+| code | meaning |
+|------|---------|
+| 0 | everything attempted completed, or there was legitimately nothing to do |
+| 1 | one or more datasets failed, or the tool was pointed at something and produced nothing |
+| 2 | the command itself was wrong (e.g. `--id` with more than one input file) |
+
+Two details worth knowing:
+
+- A bare sweep of a directory containing nothing to process exits **0** -- that is a legitimate
+  no-op. Being given an explicit path and processing nothing exits **1**.
+- A dataset that fails is **not** written to the tracking log, so a later run retries it rather
+  than skipping it and reporting success without having done any work.
+
 ## Error Handling
 - All scripts include comprehensive error handling and logging
 - Detailed logs are generated in the respective log directories
@@ -587,6 +605,8 @@ This project is licensed under the GPL-3.0-or-later License.
 
 ## Version History
 - **v0.5.0**: Experimental auto-detection, reproducibility, and correctness fixes
+  - `autoprocess` and `image_process` now return meaningful exit codes instead of always
+    reporting success; failed datasets are no longer recorded as processed
   - New `--seed N`: makes the random indexing-retry search reproducible. Without it, a dataset
     that fails first-pass indexing can return a different space group and unit cell on every run
   - New opt-in `--auto-rotation-axis`: derives the rotation-axis sign from the tilt-direction

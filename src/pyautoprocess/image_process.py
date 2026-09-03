@@ -6,6 +6,7 @@ Handles pre-converted TIF images in existing directory structure
 import os
 import re
 import shutil
+import sys
 
 import tifffile
 from contextlib import contextmanager
@@ -164,13 +165,13 @@ class PreConvertedProcessor:
 
             return image_count, base_name
 
-    def process_data(self, sample_path: Path) -> None:
-        """Process data using the same logic as autoprocess"""
+    def process_data(self, sample_path: Path) -> bool:
+        """Process data using the same logic as autoprocess. True if it completed."""
         try:
             image_dir = sample_path / "images"
             result = self._count_images(image_dir)
             if not result:
-                return
+                return False
 
             image_count, base_name = result
             image_number = str(image_count)
@@ -178,13 +179,14 @@ class PreConvertedProcessor:
             # Process in auto_process directory
             process_dir = sample_path / self.OUTPUT_FOLDER
             with self._working_directory(process_dir):
-                self._process_with_parameters(sample_path, image_number, base_name)
+                return self._process_with_parameters(sample_path, image_number, base_name)
 
         except Exception as e:
             self.processor.log_print(f"Error processing data: {str(e)}")
+            return False
 
-    def _process_with_parameters(self, sample_path: Path, image_number: str, base_name: str) -> None:
-        """Process data with parameter resolution and XDS execution"""
+    def _process_with_parameters(self, sample_path: Path, image_number: str, base_name: str) -> bool:
+        """Process data with parameter resolution and XDS execution. True if it completed."""
         try:
             # 1. Command line overrides (highest priority)
             # 2. Source file metadata (if available)
@@ -242,7 +244,7 @@ class PreConvertedProcessor:
                 actual_distance, beam_center_x, beam_center_y)
             if ranges is None:
                 self.processor.log_print("Could not calculate resolution ranges")
-                return
+                return False
 
             resolution_range, test_resolution_range = ranges
 
@@ -390,10 +392,12 @@ class PreConvertedProcessor:
             # Run full autoprocess workflow (XDS + mosaicity + space group + scaling)
             self.processor.log_print(f"\nProcessing {sample_path.name}...\n")
             self.processor.reseed_for_dataset(sample_path.name)
-            self.processor.process_check(sample_path.name)
+            # process_check returns True only after scaling completes.
+            return bool(self.processor.process_check(sample_path.name))
 
         except Exception as e:
             self.processor.log_print(f"Error processing data: {str(e)}")
+            return False
         finally:
             os.chdir(str(self.current_path))
 
@@ -925,9 +929,7 @@ class PreConvertedProcessor:
             process_dir.mkdir(parents=True)
 
             # Process the data
-            self.process_data(sample_path)
-
-            return True
+            return self.process_data(sample_path)
 
         except Exception as e:
             self.processor.log_print(f"Error processing {sample_path.name}: {str(e)}")
@@ -997,13 +999,15 @@ class PreConvertedProcessor:
 
         return folders_to_process
 
-    def process_all(self) -> None:
-        """Process folders based on paths argument or smart folder detection"""
+    def process_all(self) -> int:
+        """Process folders. Returns an exit code: 0 ok, 1 something failed."""
         valid_folders = self._get_folders_to_process()
 
         if not valid_folders:
             self.processor.log_print("No valid folders with pre-converted images found")
-            return
+            # Being pointed at specific paths and processing nothing is a failure;
+            # a bare sweep that finds nothing is a legitimate no-op.
+            return 1 if getattr(self.params, 'paths', None) else 0
 
         self.processor.log_print(f"Found {len(valid_folders)} folders to process")
         self.processor.log_print(f"Backups will be stored in individual {self.BACKUP_FOLDER} folders")
@@ -1021,6 +1025,8 @@ class PreConvertedProcessor:
         self.processor.log_print(f"Successfully processed: {processed}")
         self.processor.log_print(f"Failed: {failed}")
         self.processor.log_print(f"Backups stored in respective {self.BACKUP_FOLDER} folders")
+
+        return 1 if failed else 0
 
 def parse_arguments() -> ExtendedProcessingParameters:
     """Parse arguments for image_process using unified CLI parser (without --reprocess)"""
@@ -1082,7 +1088,10 @@ def main():
 
     processor.processor.log_print("")
 
-    processor.process_all()
+    code = processor.process_all()
+    if code:
+        processor.processor.log_print(f"\nimage_process exiting with status {code}")
+    return code
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

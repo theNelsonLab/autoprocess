@@ -35,6 +35,36 @@ from .quality_analyzer import DiffractionQualityAnalyzer
 
 
 @dataclass
+class ProcessingSummary:
+    """What a run actually did, so the CLI can return a truthful exit code."""
+    succeeded: int = 0
+    failed: int = 0
+    skipped: int = 0          # already processed, per the tracking log
+    unparsable: int = 0       # filename could not be parsed
+    usage_error: bool = False
+    paths_were_given: bool = False
+
+    @property
+    def attempted(self) -> int:
+        return self.succeeded + self.failed
+
+    def exit_code(self) -> int:
+        """0 success, 1 something failed, 2 the command itself was wrong.
+
+        A bare sweep of a directory containing nothing to process is success --
+        that is a legitimate no-op. Being POINTED at something and processing
+        nothing is not.
+        """
+        if self.usage_error:
+            return 2
+        if self.failed or self.unparsable:
+            return 1
+        if self.succeeded or self.skipped:
+            return 0
+        return 1 if self.paths_were_given else 0
+
+
+@dataclass
 class LatticeCandidate:
     """Represents a lattice candidate from CORRECT.LP starred table"""
     line_order: int
@@ -287,8 +317,12 @@ class CrystallographyProcessor:
     def _process_movie_data(self, sample_movie: str, distance: str,
                         rotation: str, exposure: str, resolution_range: float,
                         test_resolution_range: float, filename: str,
-                        source_file_path: Path) -> None:
-        """Process the movie data after directories are set up."""
+                        source_file_path: Path) -> bool:
+        """Process the movie data after directories are set up.
+
+        Returns True only if the dataset made it all the way through XDS to
+        scaling. Every early exit is a failure the caller must be able to see.
+        """
         try:
             # Get absolute paths for all processing directories
             source_dir = source_file_path.parent
@@ -327,7 +361,7 @@ class CrystallographyProcessor:
 
                 if not quality_results:
                     self.log_print(f"Quality analysis failed for {filename}. Skipping processing.")
-                    return
+                    return False
 
                 # Get quality summary and log only quality distribution
                 summary = quality_analyzer.get_quality_summary()
@@ -348,7 +382,7 @@ class CrystallographyProcessor:
                 start_frame, end_frame = quality_analyzer.find_good_frame_range()
                 if start_frame is None or end_frame is None:
                     self.log_print("No good quality frames found. Skipping processing.")
-                    return
+                    return False
 
                 # Calculate background range (start + 10 frames, but at least frame 1)
                 # Only recalculate if custom background range was not provided
@@ -374,13 +408,13 @@ class CrystallographyProcessor:
 
             if not success:
                 self.log_print(f"Failed to convert {filename}. Skipping processing.")
-                return
+                return False
 
             # Count converted images using absolute path
             image_files = list(image_dir.glob("*.tif"))
             if not image_files:
                 self.log_print(f"No converted images found in {image_dir}")
-                return
+                return False
 
             total_images = len(image_files)
             self.log_print(f"Found {total_images} converted images")
@@ -478,10 +512,13 @@ class CrystallographyProcessor:
             with self._working_directory(auto_process_dir):
                 with open("XDS.LP", "w+") as xds_out:
                     self._run_xds_command(xds_out)
-                self.process_check(sample_movie)
+                # process_check returns True only after scaling completes; None or
+                # False means indexing, integration or scaling gave up.
+                return bool(self.process_check(sample_movie))
 
         except Exception as e:
             self.log_print(f"Error processing movie data: {str(e)}")
+            return False
 
     def _get_crystal_parameters(self) -> Tuple[Optional[str], Optional[str]]:
         """Extract final space group and unit cell parameters.
@@ -588,6 +625,13 @@ class CrystallographyProcessor:
         numeric fields can be filled from CLI or config defaults.
         """
         if not filename.endswith(self.params.file_extension):
+            # Not a parse failure -- the file simply is not the type this microscope
+            # config is set up for. Say so, because the alternative is a silent skip
+            # that now surfaces only as a non-zero exit code.
+            self.log_print(
+                f"Skipping {filename}: extension does not match the "
+                f"'{self.params.microscope_config}' config's file_extension "
+                f"'{self.params.file_extension}' (override with --file-extension)")
             return None
 
         split = filename.split("_")
@@ -1498,19 +1542,21 @@ FRIEDEL'S_LAW=FALSE
                     # Print to log as before
                     self.log_print(f"Possible space group: {number} - {name}")
 
-    def process_movie(self) -> None:
+    def process_movie(self) -> ProcessingSummary:
+        summary = ProcessingSummary(paths_were_given=bool(self.params.paths))
         files_to_process = self._get_files_to_process()
 
         if not files_to_process:
             self.log_print("No .mrc, .ser, or .tvips files found to process.")
-            return
+            return summary
 
         if self.params.sample_id and len(files_to_process) > 1:
             self.log_print(
                 f"Error: --id '{self.params.sample_id}' was set but {len(files_to_process)} "
                 "files would be processed. --id can only be used with a single input file."
             )
-            return
+            summary.usage_error = True
+            return summary
 
         processed_movie = False
 
@@ -1523,31 +1569,44 @@ FRIEDEL'S_LAW=FALSE
                 existing_output = self._is_file_already_processed(file_path_obj)
                 if existing_output:
                     self.log_print(f"Already processed {filename} (output in: {existing_output})")
+                    summary.skipped += 1
                     continue
 
             file_info = self.parse_filename(filename)
             if not file_info:
                 self.log_print(f"Skipping {filename}: Could not parse filename")
+                summary.unparsable += 1
                 continue
 
             sample_movie, distance, rotation, exposure = file_info
             ranges = self.calculate_resolution_ranges(distance)
             if ranges is None:
                 self.log_print(f"Skipping {filename}: Could not calculate resolution ranges")
+                summary.failed += 1
                 continue
 
             resolution_range, test_resolution_range = ranges
 
             # Process without changing directories - use absolute paths
             processed_movie = True
-            self._process_single_movie(
+            if self._process_single_movie(
                 sample_movie, distance, rotation, exposure,
                 resolution_range, test_resolution_range,
                 filename, file_path_obj
-            )
+            ):
+                summary.succeeded += 1
+            else:
+                summary.failed += 1
 
         if not processed_movie:
             self.log_print('Found no movies to process.')
+
+        if summary.attempted:
+            self.log_print(
+                f"\nProcessed {summary.succeeded}/{summary.attempted} dataset(s) "
+                f"successfully" + (f", {summary.failed} failed" if summary.failed else ""))
+
+        return summary
 
     def _get_files_to_process(self) -> list:
         """Get list of files to process based on paths argument or current directory"""
@@ -1600,8 +1659,8 @@ FRIEDEL'S_LAW=FALSE
     def _process_single_movie(self, sample_movie: str, distance: str,
                             rotation: str, exposure: str, resolution_range: float,
                             test_resolution_range: float, filename: str,
-                            source_file_path: Path) -> None:
-        """Process a single movie file."""
+                            source_file_path: Path) -> bool:
+        """Process a single movie file. Returns True if it completed."""
         # If a prior auto_process/ exists, back it up so we always start from clean state
         # (matches image_process behaviour; required for --reprocess to produce the same
         # workflow on re-runs).
@@ -1620,19 +1679,26 @@ FRIEDEL'S_LAW=FALSE
             sample_movie, distance, source_file_path
         )
         if not movie_dir:
-            return
+            return False
 
-        self._process_movie_data(
+        succeeded = self._process_movie_data(
             sample_movie, distance, rotation, exposure,
             resolution_range, test_resolution_range,
             filename, source_file_path
         )
 
-        # Add file to processed tracking log
-        # Use absolute path for output folder based on source file location
-        source_dir = source_file_path.parent
-        output_folder = source_dir / sample_movie
-        self._add_to_processed_files_log(source_file_path, output_folder)
+        # Only successes go in the tracking log. Recording a failure would make the
+        # next run skip it and report success without having done anything.
+        if succeeded:
+            source_dir = source_file_path.parent
+            output_folder = source_dir / sample_movie
+            self._add_to_processed_files_log(source_file_path, output_folder)
+        else:
+            self.log_print(
+                f"Processing did not complete for {filename}; not recording it as "
+                "processed, so a later run will try again")
+
+        return succeeded
 
 
 def main():
@@ -1683,7 +1749,11 @@ def main():
         processor.log_print(f"Resolution Range: {params.res_range} Å (manual override)")
     processor.log_print("")
 
-    processor.process_movie()
+    summary = processor.process_movie()
+    code = summary.exit_code()
+    if code:
+        processor.log_print(f"\nautoprocess exiting with status {code}")
+    return code
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
