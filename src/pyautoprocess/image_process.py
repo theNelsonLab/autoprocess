@@ -18,8 +18,7 @@ from .autoprocess import CrystallographyProcessor
 from .config.parameters import ProcessingParameters
 from .core.beam_center_detector import (
     BeamCenterDetector,
-    select_fallback_frames,
-    select_probe_frames,
+    select_all_probe_frames,
     write_provenance,
 )
 from .core.rotation_axis import resolve_rotation_axis
@@ -538,15 +537,9 @@ class PreConvertedProcessor:
 
         detector = BeamCenterDetector(config_x, config_y, self.processor.log_print)
 
-        outcome = None
-        probe = load(select_probe_frames(1, image_count))
-        if probe:
-            outcome = detector.detect(probe)
-        if outcome is None:
-            fallback = load(select_fallback_frames(1, image_count))
-            if fallback:
-                self.processor.log_print("Beam centre: retrying at the 25%/75% frame positions")
-                outcome = detector.detect(fallback)
+        # All five probe positions in one pass -- see autoprocess._detect_beam_center.
+        probe = load(select_all_probe_frames(1, image_count))
+        outcome = detector.detect(probe) if probe else None
 
         write_provenance(outcome, sample_path / self.OUTPUT_FOLDER, config_x, config_y)
 

@@ -25,8 +25,7 @@ from .core.process_tracker import ProcessTracker
 from .core.rotation_axis import resolve_rotation_axis
 from .core.beam_center_detector import (
     BeamCenterDetector,
-    select_fallback_frames,
-    select_probe_frames,
+    select_all_probe_frames,
     write_provenance,
 )
 from .config.parameters import ProcessingParameters
@@ -264,18 +263,11 @@ class CrystallographyProcessor:
 
         detector = BeamCenterDetector(config_x, config_y, self.log_print)
 
-        outcome = None
+        # All five probe positions in one pass: the combination is a consensus over
+        # frames, so more samples make it more robust rather than merely slower.
         probe = self._probe_frames(data, is_multiframe, filename,
-                                   select_probe_frames(start_frame, end_frame))
-        if probe:
-            outcome = detector.detect(probe)
-
-        if outcome is None:
-            fallback = self._probe_frames(data, is_multiframe, filename,
-                                          select_fallback_frames(start_frame, end_frame))
-            if fallback:
-                self.log_print("Beam centre: retrying at the 25%/75% frame positions")
-                outcome = detector.detect(fallback)
+                                   select_all_probe_frames(start_frame, end_frame))
+        outcome = detector.detect(probe) if probe else None
 
         write_provenance(outcome, output_dir, config_x, config_y)
 

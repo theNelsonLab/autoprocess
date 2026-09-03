@@ -19,7 +19,7 @@ from pyautoprocess.core import beam_center_detector as bcd
 from pyautoprocess.core.beam_center_detector import (
     DEFAULT_CONFIDENCE_MIN,
     DEFAULT_SINGLE_FRAME_CONFIDENCE_MIN,
-    DEFAULT_SPREAD_TOL_PX,
+    DEFAULT_CONSENSUS_TOL_PX,
     BeamCenterDetector,
     BeamCenterOutcome,
     select_fallback_frames,
@@ -258,7 +258,12 @@ def _frame(tag: int) -> np.ndarray:
     return np.full((64, 64), float(tag), dtype=np.float32)
 
 
-def test_three_survivors_use_per_axis_median(monkeypatch):
+def test_three_agreeing_survivors_are_averaged(monkeypatch):
+    """All three inside the consensus radius, so all three inform the answer.
+
+    The median picks the middle sample and throws the rest away; once outliers
+    have already been excluded there is no reason to discard that information.
+    """
     _stub_by_frame(
         monkeypatch,
         {
@@ -269,11 +274,11 @@ def test_three_survivors_use_per_axis_median(monkeypatch):
     )
     outcome = make_detector().detect({1: _frame(1), 5: _frame(2), 9: _frame(3)})
     assert outcome is not None
-    assert outcome.raw_x == pytest.approx(102.0)  # median 101 -> +1
-    assert outcome.raw_y == pytest.approx(202.0)  # median 201 -> +1
+    assert outcome.raw_x == pytest.approx(102.0)          # mean 101 -> +1
+    assert outcome.raw_y == pytest.approx(202.0 + 1 / 3)  # mean 201.33 -> +1
     assert outcome.n_frames_used == 3
     assert outcome.frames_tried == (1, 5, 9)
-    assert "median" in outcome.method
+    assert "consensus" in outcome.method
 
 
 def test_two_survivors_use_per_axis_mean(monkeypatch):
@@ -325,8 +330,9 @@ def test_single_survivor_above_single_frame_gate_is_accepted(monkeypatch):
     assert outcome.spread_px == 0.0
 
 
-def test_disagreeing_survivors_return_none_and_log_positions(monkeypatch):
-    offset = DEFAULT_SPREAD_TOL_PX + 3.0
+def test_two_frames_that_disagree_return_none(monkeypatch):
+    """With only two frames there is no majority to break the tie, so refuse."""
+    offset = DEFAULT_CONSENSUS_TOL_PX + 3.0
     _stub_by_frame(
         monkeypatch,
         {
@@ -337,12 +343,12 @@ def test_disagreeing_survivors_return_none_and_log_positions(monkeypatch):
     detector = make_detector()
     assert detector.detect({1: _frame(1), 2: _frame(2)}) is None
     log = "\n".join(detector.messages)
-    assert "disagree" in log
-    assert "101.00" in log and f"{101.0 + offset:.2f}" in log
+    assert "disagree by" in log
+    assert "no majority to break the tie" in log
 
 
-def test_survivors_just_inside_spread_tolerance_are_accepted(monkeypatch):
-    offset = DEFAULT_SPREAD_TOL_PX - 0.5
+def test_survivors_just_inside_consensus_tolerance_are_accepted(monkeypatch):
+    offset = DEFAULT_CONSENSUS_TOL_PX - 0.5
     _stub_by_frame(
         monkeypatch,
         {
@@ -353,6 +359,85 @@ def test_survivors_just_inside_spread_tolerance_are_accepted(monkeypatch):
     outcome = make_detector().detect({1: _frame(1), 2: _frame(2)})
     assert outcome is not None
     assert outcome.spread_px == pytest.approx(offset)
+
+
+def test_one_outlier_is_discarded_rather_than_vetoing_the_answer(monkeypatch):
+    """The core of the fix.
+
+    Under the old max-pairwise-spread gate, a single distant frame rejected the
+    whole set even when the other frames agreed tightly. Measured on real data,
+    that discarded two answers which were 0.4 px and ~4 px from the position XDS
+    itself refined to, in favour of config values 30 px and 21 px off.
+    """
+    _stub_by_frame(
+        monkeypatch,
+        {
+            1: stub_result(100.0, 200.0, 0.9),
+            2: stub_result(101.0, 200.5, 0.9),
+            3: stub_result(140.0, 250.0, 0.9),   # far outlier
+        },
+    )
+    detector = make_detector()
+    outcome = detector.detect({1: _frame(1), 2: _frame(2), 3: _frame(3)})
+
+    assert outcome is not None, "\n".join(detector.messages)
+    assert outcome.n_frames_used == 2, "the outlier should be dropped, not kept"
+    assert outcome.raw_x == pytest.approx(101.5, abs=0.6)
+    assert "Discarded 1 outlying frame" in "\n".join(detector.messages)
+
+
+def test_a_majority_of_outliers_still_refuses(monkeypatch):
+    """Dropping outliers must not become 'believe any two frames that agree'."""
+    _stub_by_frame(
+        monkeypatch,
+        {
+            1: stub_result(100.0, 200.0, 0.9),
+            2: stub_result(160.0, 260.0, 0.9),
+            3: stub_result(220.0, 320.0, 0.9),
+        },
+    )
+    detector = make_detector()
+    assert detector.detect({1: _frame(1), 2: _frame(2), 3: _frame(3)}) is None
+
+
+@pytest.mark.parametrize("name, per_frame, expected, tolerance", [
+    # AMG10mov1: five real probes; XDS refined the beam to (1047.15, 1031.70)
+    # while the configured centre (1030, 1020) was 20.8 px away.
+    ("AMG10mov1",
+     [(1041.30, 1027.05), (1046.30, 1027.85), (1040.70, 1026.20),
+      (1052.00, 1031.80), (1046.50, 1028.65)],
+     (1047.15, 1031.70), 6.0),
+    # ss-jacobsen-mov20: XDS refined to (1024.30, 1049.58); config was 30.1 px off.
+    # Two of the five frames come from the masked-inversion fallback estimator and
+    # are the outliers, so this also exercises outlier rejection on real values.
+    ("ss-jacobsen-mov20",
+     [(1024.55, 1050.40), (1015.00, 1050.00), (1025.10, 1046.10),
+      (1007.00, 1051.00), (1026.95, 1045.15)],
+     (1024.30, 1049.58), 6.0),
+])
+def test_real_world_false_negatives_are_now_accepted(monkeypatch, name, per_frame,
+                                                     expected, tolerance):
+    """Regression: both of these were rejected outright by the old gate.
+
+    Values are the actual per-frame estimates measured on the lab's data. The
+    estimator is stubbed so the test pins the COMBINATION logic, not the CV.
+    """
+    stubs = {
+        index + 1: stub_result(x - 1.0, y - 1.0, 0.6)   # detector works 0-based
+        for index, (x, y) in enumerate(per_frame)
+    }
+    _stub_by_frame(monkeypatch, stubs)
+    detector = BeamCenterDetector(1030, 1020, log_print=lambda _: None)
+    outcome = detector.detect({n: _frame(n) for n in stubs})
+
+    assert outcome is not None, f"{name} should no longer be rejected"
+    error = math.hypot(outcome.x - expected[0], outcome.y - expected[1])
+    assert error <= tolerance, (
+        f"{name}: combined ({outcome.x}, {outcome.y}) is {error:.2f} px from "
+        f"XDS's refined {expected}")
+    # And it must beat the configured centre it would otherwise have fallen back to.
+    config_error = math.hypot(1030 - expected[0], 1020 - expected[1])
+    assert error < config_error
 
 
 def test_all_frames_raise_returns_none(monkeypatch):
@@ -420,7 +505,7 @@ def test_real_estimator_finds_known_offcentre_origin(good_frames):
     assert outcome.y == round(outcome.raw_y)
     assert outcome.n_frames_used == 3
     assert outcome.confidence >= DEFAULT_CONFIDENCE_MIN
-    assert outcome.spread_px <= DEFAULT_SPREAD_TOL_PX
+    assert outcome.spread_px <= 2 * DEFAULT_CONSENSUS_TOL_PX
     # And it must not simply have echoed the config prior back at us.
     assert (outcome.x, outcome.y) != (CONFIG_X, CONFIG_Y)
 

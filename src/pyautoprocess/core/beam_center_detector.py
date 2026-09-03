@@ -73,8 +73,20 @@ DEFAULT_SEARCH_RADIUS_FRACTION = 0.05
 # frame.  That is exactly why this gate exists.
 DEFAULT_CONFIDENCE_MIN = 0.35
 
-# Max allowed pairwise disagreement between surviving frames, in pixels.
-DEFAULT_SPREAD_TOL_PX = 5.0
+# How far a surviving frame may sit from the median and still count as
+# supporting it, in pixels.
+#
+# This replaced a max-pairwise-spread gate, which was measured rejecting correct
+# answers.  Individual frames legitimately scatter -- different reflections are
+# present at different tilts -- so the worst PAIR is a bad summary of a set whose
+# MEDIAN is what actually gets used.  On two real datasets the old 5 px pairwise
+# gate discarded medians that were 0.4 px and ~4 px from the position XDS itself
+# refined to, falling back to config values that were 30 px and 21 px off.
+#
+# Per-frame distances from the median measured on those two datasets were
+# [0.0, 0.8, 5.1, 5.8, 6.9] and [0.4, 3.9, 5.4, 9.6, 17.6], so 8 px keeps a
+# clear majority in both while still excluding the genuine outliers.
+DEFAULT_CONSENSUS_TOL_PX = 8.0
 
 # When only one frame survives there is no cross-check, so demand more of it.
 DEFAULT_SINGLE_FRAME_CONFIDENCE_MIN = 0.60
@@ -98,6 +110,20 @@ def select_probe_frames(start_frame: int, end_frame: int) -> List[int]:
         return []
     middle = start + (end - start) // 2
     return sorted({start, middle, end})
+
+
+def select_all_probe_frames(start_frame: int, end_frame: int) -> List[int]:
+    """Every frame worth probing: first/middle/last plus the 25% and 75% points.
+
+    Five samples rather than three, because the combination is a median and a
+    median over five tolerates two bad frames instead of one.  The extra two
+    frames cost about 1.8 s against XDS runs measured in minutes, and on real
+    data they measurably improved the median (one dataset moved from ~7 px to
+    ~4 px from the position XDS refined to).
+    """
+    probes = set(select_probe_frames(start_frame, end_frame))
+    probes.update(select_fallback_frames(start_frame, end_frame))
+    return sorted(probes)
 
 
 def select_fallback_frames(start_frame: int, end_frame: int) -> List[int]:
@@ -166,7 +192,7 @@ class BeamCenterDetector:
         :func:`print`.
     **tunables:
         Optional overrides for ``max_analysis_size``, ``search_radius_fraction``,
-        ``confidence_min``, ``spread_tol_px`` and
+        ``confidence_min``, ``consensus_tol_px`` and
         ``single_frame_confidence_min``.
     """
 
@@ -185,7 +211,7 @@ class BeamCenterDetector:
             "max_analysis_size": DEFAULT_MAX_ANALYSIS_SIZE,
             "search_radius_fraction": DEFAULT_SEARCH_RADIUS_FRACTION,
             "confidence_min": DEFAULT_CONFIDENCE_MIN,
-            "spread_tol_px": DEFAULT_SPREAD_TOL_PX,
+            "consensus_tol_px": DEFAULT_CONSENSUS_TOL_PX,
             "single_frame_confidence_min": DEFAULT_SINGLE_FRAME_CONFIDENCE_MIN,
         }
         unknown = set(tunables) - set(known)
@@ -203,8 +229,8 @@ class BeamCenterDetector:
         self.confidence_min = float(
             tunables.get("confidence_min", known["confidence_min"])
         )
-        self.spread_tol_px = float(
-            tunables.get("spread_tol_px", known["spread_tol_px"])
+        self.consensus_tol_px = float(
+            tunables.get("consensus_tol_px", known["consensus_tol_px"])
         )
         self.single_frame_confidence_min = float(
             tunables.get(
@@ -219,8 +245,8 @@ class BeamCenterDetector:
             raise ValueError("search_radius_fraction must be between 0.01 and 0.45")
         if self.max_analysis_size < 64:
             raise ValueError("max_analysis_size must be at least 64")
-        if self.spread_tol_px < 0:
-            raise ValueError("spread_tol_px must not be negative")
+        if self.consensus_tol_px < 0:
+            raise ValueError("consensus_tol_px must not be negative")
 
     # -- internals ------------------------------------------------------------
 
@@ -326,17 +352,74 @@ class BeamCenterDetector:
         confidences = [item[1].confidence for item in accepted]
         spread = self._max_pairwise_distance(points) if len(points) > 1 else 0.0
 
-        if len(points) > 1 and spread > self.spread_tol_px:
-            positions = "; ".join(
-                f"frame {number}: ({result.x + 1:.2f}, {result.y + 1:.2f})"
-                for number, result in accepted
+        if len(points) == 2:
+            # A median of two sits exactly between them, so every point trivially
+            # "supports" it -- the consensus test is vacuous at n=2. With no
+            # majority available, require the two to agree with EACH OTHER.
+            separation = math.hypot(
+                points[0][0] - points[1][0], points[0][1] - points[1][1]
             )
-            self.log_print(
-                "Beam center detection failed: frames disagree by "
-                f"{spread:.2f} px > {self.spread_tol_px:.2f} px tolerance "
-                f"[{positions}]; using configured beam center"
-            )
-            return None
+            if separation > self.consensus_tol_px:
+                positions = "; ".join(
+                    f"frame {number}: ({result.x + 1:.2f}, {result.y + 1:.2f})"
+                    for number, result in accepted
+                )
+                self.log_print(
+                    "Beam center detection failed: the only 2 surviving frames "
+                    f"disagree by {separation:.2f} px > {self.consensus_tol_px:.2f} px "
+                    f"and there is no majority to break the tie [{positions}]; "
+                    "using configured beam center"
+                )
+                return None
+
+        elif len(points) > 2:
+            # Consensus around the MEDIAN, not the worst pair.  Frames legitimately
+            # scatter, and the median is what gets used, so the question that matters
+            # is whether a majority of frames support it -- not whether the two most
+            # distant ones happen to disagree.  Outliers are discarded here rather
+            # than being allowed to veto an otherwise good answer.
+            median_x = float(np.median([point[0] for point in points]))
+            median_y = float(np.median([point[1] for point in points]))
+            deviations = [
+                math.hypot(point[0] - median_x, point[1] - median_y)
+                for point in points
+            ]
+            supporting = [
+                index
+                for index, deviation in enumerate(deviations)
+                if deviation <= self.consensus_tol_px
+            ]
+            needed = (len(points) + 1) // 2  # a simple majority
+
+            if len(supporting) < needed:
+                positions = "; ".join(
+                    f"frame {number}: ({result.x + 1:.2f}, {result.y + 1:.2f})"
+                    f" [{deviation:.2f} px from median]"
+                    for (number, result), deviation in zip(accepted, deviations)
+                )
+                self.log_print(
+                    "Beam center detection failed: only "
+                    f"{len(supporting)}/{len(points)} frames agree within "
+                    f"{self.consensus_tol_px:.2f} px of the median "
+                    f"(need {needed}) [{positions}]; using configured beam center"
+                )
+                return None
+
+            if len(supporting) < len(points):
+                dropped = "; ".join(
+                    f"frame {accepted[index][0]} ({deviations[index]:.2f} px)"
+                    for index in range(len(points))
+                    if index not in supporting
+                )
+                self.log_print(
+                    f"  Discarded {len(points) - len(supporting)} outlying "
+                    f"frame(s) beyond {self.consensus_tol_px:.2f} px: {dropped}"
+                )
+
+            accepted = [accepted[index] for index in supporting]
+            points = [points[index] for index in supporting]
+            confidences = [confidences[index] for index in supporting]
+            spread = self._max_pairwise_distance(points) if len(points) > 1 else 0.0
 
         if len(points) == 1:
             number, result = accepted[0]
@@ -357,10 +440,12 @@ class BeamCenterDetector:
             method = f"mean-of-2/{accepted[0][1].method}"
             combination = "mean of 2 frames"
         else:
-            combined_x = float(np.median([point[0] for point in points]))
-            combined_y = float(np.median([point[1] for point in points]))
-            method = f"median-of-{len(points)}/{accepted[0][1].method}"
-            combination = f"median of {len(points)} frames"
+            # Outliers are already gone, so a mean uses all the surviving
+            # information rather than discarding all but the middle sample.
+            combined_x = float(np.mean([point[0] for point in points]))
+            combined_y = float(np.mean([point[1] for point in points]))
+            method = f"consensus-of-{len(points)}/{accepted[0][1].method}"
+            combination = f"consensus mean of {len(points)} frames"
 
         # Estimator output is 0-based; ORGX/ORGY are 1-based.
         raw_x = float(combined_x) + 1.0
