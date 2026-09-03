@@ -32,7 +32,12 @@ def make_processor(**overrides):
     (ProcessingSummary(failed=1), 1),
     (ProcessingSummary(skipped=4), 0),                       # all already done
     (ProcessingSummary(succeeded=1, skipped=2), 0),
-    (ProcessingSummary(unparsable=1), 1),                    # asked, could not parse
+    (ProcessingSummary(unparsable=1), 1),                    # asked, nothing usable
+    # Skipped non-conventional names alongside real work are ordinary, not a failure:
+    # in the lab archive only ~0.4% of .mrc names follow the convention.
+    (ProcessingSummary(succeeded=1, unparsable=99), 0),
+    (ProcessingSummary(skipped=1, unparsable=99), 0),
+    (ProcessingSummary(failed=1, unparsable=99), 1),
     (ProcessingSummary(usage_error=True), 2),
     (ProcessingSummary(usage_error=True, succeeded=1), 2),   # usage error dominates
 ])

@@ -588,6 +588,9 @@ Two details worth knowing:
 
 - A bare sweep of a directory containing nothing to process exits **0** -- that is a legitimate
   no-op. Being given an explicit path and processing nothing exits **1**.
+- Files whose names do not follow the convention are logged and skipped, but do **not** fail a run
+  that processed something. A directory holding a few datasets alongside unrelated `.mrc` output
+  is ordinary. If nothing usable is found at all, the exit code is 1.
 - A dataset that fails is **not** written to the tracking log, so a later run retries it rather
   than skipping it and reporting success without having done any work.
 

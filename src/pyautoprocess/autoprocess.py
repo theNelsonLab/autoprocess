@@ -58,10 +58,17 @@ class ProcessingSummary:
         """
         if self.usage_error:
             return 2
-        if self.failed or self.unparsable:
+        if self.failed:
             return 1
         if self.succeeded or self.skipped:
+            # Real work happened. Names that did not follow the convention are
+            # logged individually but do not fail the run: a directory holding a
+            # few datasets alongside SerialEM output is completely ordinary, and
+            # in the lab archive only ~0.4% of .mrc names follow the convention.
             return 0
+        if self.unparsable:
+            # Nothing usable at all, having been asked to process something.
+            return 1
         return 1 if self.paths_were_given else 0
 
 
