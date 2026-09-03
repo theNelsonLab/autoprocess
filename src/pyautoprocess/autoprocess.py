@@ -22,6 +22,7 @@ import numpy as np
 from .core.file_handler import FileHandler
 from .core.xds_manager import XDSManager
 from .core.process_tracker import ProcessTracker
+from .core.filename_parser import looks_numeric
 from .core.rotation_axis import resolve_rotation_axis
 from .core.beam_center_detector import (
     BeamCenterDetector,
@@ -623,6 +624,13 @@ class CrystallographyProcessor:
         --id overrides sample_movie unconditionally. If --id is supplied, filenames that
         lack the 4 underscore-separated fields are still accepted as long as the missing
         numeric fields can be filled from CLI or config defaults.
+
+        A name only counts as following the convention if fields 1-3 actually look
+        numeric. Four underscore-separated fields are not enough on their own:
+        `20260513_98917_0_movie.ser` has four, but its "exposure" is the word `movie`,
+        and taking it at face value meant carrying nonsense to a downstream crash.
+        This is the same test monitorED applies, so the two agree on what a valid
+        name is.
         """
         if not filename.endswith(self.params.file_extension):
             # Not a parse failure -- the file simply is not the type this microscope
@@ -634,12 +642,35 @@ class CrystallographyProcessor:
                 f"'{self.params.file_extension}' (override with --file-extension)")
             return None
 
-        split = filename.split("_")
-        has_filename_fields = len(split) >= 4
+        # Split the STEM, not the raw name: for a minimal `sample_960_0.3_3.ser` the
+        # last field would otherwise be '3.ser', which is not numeric -- and which the
+        # old code passed to float() as the exposure. monitorED already split the stem.
+        split = Path(filename).stem.split("_")
+        # Fields 1-3 are distance / rotation / exposure and must read as numbers
+        # ('p' is accepted as the decimal separator, so 1p5 is fine). A sample name
+        # containing an underscore also lands here, since it shifts every field along.
+        enough_fields = len(split) >= 4
+        fields_are_numeric = enough_fields and all(
+            looks_numeric(split[index]) for index in (1, 2, 3)
+        )
+        has_filename_fields = fields_are_numeric
         sample_id = self.params.sample_id
 
         if not has_filename_fields and not sample_id:
-            self.log_print(f"Skipping {filename}: unexpected filename format (use --id to override).")
+            if enough_fields:
+                offenders = ", ".join(
+                    f"field {index} = '{split[index]}'"
+                    for index in (1, 2, 3)
+                    if not looks_numeric(split[index])
+                )
+                self.log_print(
+                    f"Skipping {filename}: expected "
+                    f"sample_distance_rotation_exposure but {offenders} is not numeric "
+                    "(a sample name containing '_' does this too). Use --id to supply "
+                    "the values from the command line or microscope config instead.")
+            else:
+                self.log_print(
+                    f"Skipping {filename}: unexpected filename format (use --id to override).")
             return None
 
         # Sample name: --id wins, else split[0]. Strip the extension if there are no

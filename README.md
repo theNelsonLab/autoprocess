@@ -547,6 +547,16 @@ Fields:
 
 **Note**: Decimal points in numeric fields can use either `.` or `p` as separator (e.g., `1p5` is treated as `1.5`).
 
+**The three numeric fields must actually be numeric.** Four underscore-separated fields are not
+enough on their own: `20260513_98917_0_movie.mrc` has four, but its "exposure" is the word
+`movie`, so it is skipped with an explanation rather than processed with nonsense. The same
+applies when the sample name itself contains an underscore, since that shifts every field along.
+`autoprocess` and `monitorED` apply the same test, so they agree on which files are valid.
+
+Use `--id SAMPLE_ID` to process a file whose name does not follow the convention: the sample name
+comes from the flag, and the three numeric values from `--detector-distance` / `--rotation` /
+`--exposure` or the microscope config.
+
 ## Directory Structure
 ```
 working_directory/

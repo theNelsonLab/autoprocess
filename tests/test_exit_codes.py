@@ -110,19 +110,18 @@ def test_unparsable_filename_is_a_failure_not_a_silent_skip(tmp_path):
     assert summary.exit_code() == 1
 
 
-def test_non_numeric_fields_surface_as_a_failure_not_a_zero_exit(tmp_path):
-    """`20260513_98917_0_movie.ser` has four fields, so it parses -- but its
-    "exposure" is the word `movie`.
+def test_non_numeric_fields_are_rejected_up_front(tmp_path):
+    """`20260513_98917_0_movie.ser` has four fields, but its "exposure" is `movie`.
 
-    parse_filename does not check that the numeric fields are numeric (monitorED's
-    validator does), so the run proceeds and fails downstream. That is worth
-    knowing, but the user-visible outcome is what matters here: a non-zero exit
-    rather than a silent success.
+    It is now refused at parse time rather than proceeding and crashing downstream,
+    so it counts as unparsable rather than failed. Either way the exit code is 1 --
+    what changed is that the log names the actual problem.
     """
     movie = tmp_path / "20260513_98917_0_movie.ser"
     movie.write_bytes(b"x")
     summary = make_processor(paths=[str(movie)]).process_movie()
-    assert summary.failed == 1
+    assert summary.unparsable == 1
+    assert summary.failed == 0, "it should never reach processing"
     assert summary.exit_code() == 1
 
 
