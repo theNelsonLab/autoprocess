@@ -6,7 +6,8 @@ after a dataset failed to index and produced no CORRECT.LP. monitorED checks the
 child's return code, so it logged "Successfully processed" for datasets that had
 produced nothing at all.
 
-Codes: 0 success, 1 something failed, 2 the command itself was wrong.
+Codes: 0 success, 1 something failed, 2 the command itself was wrong, 3 nothing usable was
+found. These are a stable contract for callers (REyes, monitorED): do not renumber.
 """
 import sys
 
@@ -32,7 +33,10 @@ def make_processor(**overrides):
     (ProcessingSummary(failed=1), 1),
     (ProcessingSummary(skipped=4), 0),                       # all already done
     (ProcessingSummary(succeeded=1, skipped=2), 0),
-    (ProcessingSummary(unparsable=1), 1),                    # asked, nothing usable
+    (ProcessingSummary(unparsable=1), 3),                    # nothing usable found
+    (ProcessingSummary(), 3),                                # nothing at all
+    (ProcessingSummary(previously_failed=1), 1),             # known failure, not retried
+    (ProcessingSummary(succeeded=2, previously_failed=1), 1),
     # Skipped non-conventional names alongside real work are ordinary, not a failure:
     # in the lab archive only ~0.4% of .mrc names follow the convention.
     (ProcessingSummary(succeeded=1, unparsable=99), 0),
@@ -45,11 +49,9 @@ def test_exit_code_mapping(summary, expected):
     assert summary.exit_code() == expected
 
 
-def test_nothing_to_do_depends_on_whether_paths_were_given():
-    """A sweep of an empty directory is a legitimate no-op; being pointed at
-    something and processing nothing is not."""
-    assert ProcessingSummary(paths_were_given=False).exit_code() == 0
-    assert ProcessingSummary(paths_were_given=True).exit_code() == 1
+def test_exit_code_values_are_stable():
+    from pyautoprocess import autoprocess as ap
+    assert (ap.EXIT_OK, ap.EXIT_FAILED, ap.EXIT_USAGE, ap.EXIT_NO_INPUT) == (0, 1, 2, 3)
 
 
 def test_attempted_counts_only_real_attempts():
@@ -59,18 +61,19 @@ def test_attempted_counts_only_real_attempts():
 
 # ------------------------------------------------------------------ end to end
 
-def test_bare_sweep_of_an_empty_directory_succeeds(tmp_path, monkeypatch):
+def test_bare_sweep_of_an_empty_directory_is_no_input(tmp_path, monkeypatch):
+    """REyes's call: cwd is the movie folder, no path. An empty folder must not look like success."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["autoprocess"])
     from pyautoprocess.autoprocess import main
-    assert main() == 0
+    assert main() == 3
 
 
-def test_being_pointed_at_a_missing_path_fails(tmp_path, monkeypatch):
+def test_being_pointed_at_a_missing_path_is_no_input(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["autoprocess", str(tmp_path / "nope.mrc")])
     from pyautoprocess.autoprocess import main
-    assert main() == 1
+    assert main() == 3
 
 
 def test_id_with_multiple_files_is_a_usage_error(tmp_path, monkeypatch):
@@ -106,28 +109,28 @@ def test_a_successful_dataset_exits_zero(tmp_path, monkeypatch):
     assert summary.exit_code() == 0
 
 
-def test_unparsable_filename_is_a_failure_not_a_silent_skip(tmp_path):
+def test_unparsable_filename_alone_is_no_input_not_success(tmp_path):
     """The user asked for this file; refusing to parse it is not success."""
     movie = tmp_path / "movie.ser"          # no underscore fields at all
     movie.write_bytes(b"x")
     summary = make_processor(paths=[str(movie)]).process_movie()
     assert summary.unparsable == 1
-    assert summary.exit_code() == 1
+    assert summary.exit_code() == 3
 
 
 def test_non_numeric_fields_are_rejected_up_front(tmp_path):
     """`20260513_98917_0_movie.ser` has four fields, but its "exposure" is `movie`.
 
     It is now refused at parse time rather than proceeding and crashing downstream,
-    so it counts as unparsable rather than failed. Either way the exit code is 1 --
-    what changed is that the log names the actual problem.
+    so it counts as unparsable rather than failed, and with nothing else usable the exit
+    code is 3 (no input).
     """
     movie = tmp_path / "20260513_98917_0_movie.ser"
     movie.write_bytes(b"x")
     summary = make_processor(paths=[str(movie)]).process_movie()
     assert summary.unparsable == 1
     assert summary.failed == 0, "it should never reach processing"
-    assert summary.exit_code() == 1
+    assert summary.exit_code() == 3
 
 
 # --------------------------------------------------- tracking log vs failure
@@ -182,17 +185,17 @@ def test_image_process_returns_a_code_when_pointed_at_nothing(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["image_process", str(tmp_path / "missing")])
     processor = PreConvertedProcessor(parse_arguments('image_process'))
-    assert processor.process_all() == 1
+    assert processor.process_all() == 3
 
 
-def test_image_process_bare_sweep_of_empty_dir_is_zero(tmp_path, monkeypatch):
+def test_image_process_bare_sweep_of_empty_dir_is_no_input(tmp_path, monkeypatch):
     from pyautoprocess.image_process import PreConvertedProcessor
     from pyautoprocess.ui.cli_parser import parse_arguments
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["image_process"])
     processor = PreConvertedProcessor(parse_arguments('image_process'))
-    assert processor.process_all() == 0
+    assert processor.process_all() == 3
 
 
 def test_extension_mismatch_explains_itself(tmp_path, capsys):

@@ -22,6 +22,7 @@ import numpy as np
 from .core.file_handler import FileHandler
 from .core.xds_manager import XDSManager
 from .core.process_tracker import ProcessTracker
+from .core import dataset_status
 from .core.filename_parser import looks_numeric
 from .core.rotation_axis import resolve_rotation_axis
 from .core.beam_center_detector import (
@@ -35,41 +36,42 @@ from .ui.cli_parser import parse_autoprocess_arguments
 from .quality_analyzer import DiffractionQualityAnalyzer
 
 
+# Exit codes. A stable contract for callers such as REyes and monitorED: do not renumber.
+EXIT_OK = 0            # everything attempted succeeded, or was already processed
+EXIT_FAILED = 1        # at least one dataset failed, now or in an earlier run
+EXIT_USAGE = 2         # the command itself was wrong
+EXIT_NO_INPUT = 3      # nothing usable to process was found
+
+
 @dataclass
 class ProcessingSummary:
     """What a run actually did, so the CLI can return a truthful exit code."""
     succeeded: int = 0
     failed: int = 0
-    skipped: int = 0          # already processed, per the tracking log
-    unparsable: int = 0       # filename could not be parsed
+    skipped: int = 0            # already processed successfully, per the tracking log
+    previously_failed: int = 0  # failed in an earlier run and not retried
+    unparsable: int = 0         # filename could not be parsed
     usage_error: bool = False
-    paths_were_given: bool = False
 
     @property
     def attempted(self) -> int:
         return self.succeeded + self.failed
 
     def exit_code(self) -> int:
-        """0 success, 1 something failed, 2 the command itself was wrong.
-
-        A bare sweep of a directory containing nothing to process is success --
-        that is a legitimate no-op. Being POINTED at something and processing
-        nothing is not.
-        """
+        """See the EXIT_* constants. Precedence: usage error, failure, success, no input."""
         if self.usage_error:
-            return 2
-        if self.failed:
-            return 1
+            return EXIT_USAGE
+        if self.failed or self.previously_failed:
+            return EXIT_FAILED
         if self.succeeded or self.skipped:
-            # Real work happened. Names that did not follow the convention are
-            # logged individually but do not fail the run: a directory holding a
-            # few datasets alongside SerialEM output is completely ordinary, and
-            # in the lab archive only ~0.4% of .mrc names follow the convention.
-            return 0
-        if self.unparsable:
-            # Nothing usable at all, having been asked to process something.
-            return 1
-        return 1 if self.paths_were_given else 0
+            # Real work happened (now or before). Names that did not follow the convention
+            # are logged individually but do not fail the run: a directory holding a few
+            # datasets alongside SerialEM output is completely ordinary, and in the lab
+            # archive only ~0.4% of .mrc names follow the convention.
+            return EXIT_OK
+        # No movie files, only unparsable names, or a given path that held nothing. A
+        # distinct code, so a caller cannot mistake an empty folder for success.
+        return EXIT_NO_INPUT
 
 
 @dataclass
@@ -122,6 +124,9 @@ class CrystallographyProcessor:
         # by reseed_for_dataset(); this initial value covers callers that drive process_check()
         # directly, such as image_process and batch_reprocess.
         self._rng = random.Random() if params.seed is None else random.Random(params.seed)
+
+        # Why the current dataset failed, when a step knows better than the files left behind.
+        self._failure_reason: Optional[str] = None
 
     def reseed_for_dataset(self, sample_movie: str) -> None:
         """Reseed the indexing-retry RNG for one dataset.
@@ -369,6 +374,7 @@ class CrystallographyProcessor:
 
                 if not quality_results:
                     self.log_print(f"Quality analysis failed for {filename}. Skipping processing.")
+                    self._failure_reason = "diffraction quality analysis failed"
                     return False
 
                 # Get quality summary and log only quality distribution
@@ -390,6 +396,7 @@ class CrystallographyProcessor:
                 start_frame, end_frame = quality_analyzer.find_good_frame_range()
                 if start_frame is None or end_frame is None:
                     self.log_print("No good quality frames found. Skipping processing.")
+                    self._failure_reason = "no good-quality frames found (--dqa)"
                     return False
 
                 # Calculate background range (start + 10 frames, but at least frame 1)
@@ -416,12 +423,14 @@ class CrystallographyProcessor:
 
             if not success:
                 self.log_print(f"Failed to convert {filename}. Skipping processing.")
+                self._failure_reason = "conversion to TIF failed"
                 return False
 
             # Count converted images using absolute path
             image_files = list(image_dir.glob("*.tif"))
             if not image_files:
                 self.log_print(f"No converted images found in {image_dir}")
+                self._failure_reason = "conversion produced no TIF images"
                 return False
 
             total_images = len(image_files)
@@ -526,6 +535,7 @@ class CrystallographyProcessor:
 
         except Exception as e:
             self.log_print(f"Error processing movie data: {str(e)}")
+            self._failure_reason = f"error: {type(e).__name__}: {e}"
             return False
 
     def _get_crystal_parameters(self) -> Tuple[Optional[str], Optional[str]]:
@@ -1554,6 +1564,7 @@ FRIEDEL'S_LAW=FALSE
             # Check if pointless ran successfully
             if result.returncode != 0:
                 self.log_print("Warning: Could not run pointless, but processing completed")
+                self._failure_reason = "pointless failed"
                 return False  # Stop further processing
 
             self._process_pointless_output()
@@ -1581,7 +1592,7 @@ FRIEDEL'S_LAW=FALSE
                     self.log_print(f"Possible space group: {number} - {name}")
 
     def process_movie(self) -> ProcessingSummary:
-        summary = ProcessingSummary(paths_were_given=bool(self.params.paths))
+        summary = ProcessingSummary()
         files_to_process = self._get_files_to_process()
 
         if not files_to_process:
@@ -1603,24 +1614,46 @@ FRIEDEL'S_LAW=FALSE
             file_path_obj = Path(file_path)
 
             # Check if file has already been processed
+            file_info = None
             if not self.params.reprocess:
                 existing_output = self._is_file_already_processed(file_path_obj)
                 if existing_output:
-                    self.log_print(f"Already processed {filename} (output in: {existing_output})")
-                    summary.skipped += 1
-                    continue
+                    file_info = self.parse_filename(filename)
+                    # The tracking log only ever gains successes, so a success can be followed
+                    # by a failed --reprocess. The status record holds the latest outcome.
+                    if not (file_info and self._previous_failure(file_info[0], file_path_obj)):
+                        self.log_print(
+                            f"Already processed {filename} (output in: {existing_output})")
+                        summary.skipped += 1
+                        self._record_skipped(file_info, file_path_obj, existing_output)
+                        continue
 
-            file_info = self.parse_filename(filename)
+            if file_info is None:
+                file_info = self.parse_filename(filename)
             if not file_info:
                 self.log_print(f"Skipping {filename}: Could not parse filename")
                 summary.unparsable += 1
                 continue
 
             sample_movie, distance, rotation, exposure = file_info
+
+            if not (self.params.reprocess or self.params.retry_failed):
+                previous = self._previous_failure(sample_movie, file_path_obj)
+                if previous is not None:
+                    self.log_print(
+                        f"Skipping {filename}: failed in an earlier run "
+                        f"({previous.get('reason') or 'no reason recorded'}). "
+                        "Use --retry-failed to try it again.")
+                    summary.previously_failed += 1
+                    continue
+
             ranges = self.calculate_resolution_ranges(distance)
             if ranges is None:
                 self.log_print(f"Skipping {filename}: Could not calculate resolution ranges")
                 summary.failed += 1
+                self._record_status(sample_movie, dataset_status.FAILED,
+                                    "could not calculate resolution ranges",
+                                    file_path_obj)
                 continue
 
             resolution_range, test_resolution_range = ranges
@@ -1643,8 +1676,48 @@ FRIEDEL'S_LAW=FALSE
             self.log_print(
                 f"\nProcessed {summary.succeeded}/{summary.attempted} dataset(s) "
                 f"successfully" + (f", {summary.failed} failed" if summary.failed else ""))
+        if summary.previously_failed:
+            self.log_print(f"{summary.previously_failed} dataset(s) skipped because they failed "
+                           "in an earlier run (use --retry-failed to try again)")
 
         return summary
+
+    # ------------------------------------------------------------------ result records
+
+    def _log_dir(self) -> Path:
+        return self._get_processed_files_log_path().parent
+
+    def _record_status(self, sample_movie: str, status: str, reason: str,
+                       source_file_path: Path) -> None:
+        """Write autoprocess_logs/<dataset>_status.json. Never fails the run."""
+        output_dir = source_file_path.parent / sample_movie
+        try:
+            dataset_status.write_status(self._log_dir(), sample_movie, status, reason,
+                                        source_file_path, output_dir)
+        except OSError as e:
+            self.log_print(f"Warning: could not write status record for {sample_movie}: {e}")
+
+    def _previous_failure(self, sample_movie: str, source_file_path: Path) -> Optional[dict]:
+        """The failure record for this exact source file, if its last run failed."""
+        record = dataset_status.read_status(self._log_dir(), sample_movie)
+        if (record and record.get("status") == dataset_status.FAILED
+                and record.get("source_file") == os.path.abspath(source_file_path)):
+            return record
+        return None
+
+    def _record_skipped(self, file_info: Optional[tuple], source_file_path: Path,
+                        existing_output: str) -> None:
+        """Note an already-processed dataset, without overwriting the record of its success."""
+        if not file_info:
+            return
+        sample_movie = file_info[0]
+        record = dataset_status.read_status(self._log_dir(), sample_movie)
+        if record and record.get("status") == dataset_status.SUCCESS:
+            return
+        # Processed by a version that wrote no record: say so, and still list the outputs.
+        self._record_status(sample_movie, dataset_status.SKIPPED,
+                            f"already processed (output in {existing_output})",
+                            source_file_path)
 
     def _get_files_to_process(self) -> list:
         """Get list of files to process based on paths argument or current directory"""
@@ -1713,10 +1786,13 @@ FRIEDEL'S_LAW=FALSE
         self.log_print(f"Resolution Range: {resolution_range} Å")
         self.log_print(f"Test Resolution Range: {test_resolution_range} Å\n")
 
+        self._failure_reason = None
         movie_dir = self._setup_movie_directories(
             sample_movie, distance, source_file_path
         )
         if not movie_dir:
+            self._record_status(sample_movie, dataset_status.FAILED,
+                                "could not create output directories", source_file_path)
             return False
 
         succeeded = self._process_movie_data(
@@ -1725,18 +1801,44 @@ FRIEDEL'S_LAW=FALSE
             filename, source_file_path
         )
 
-        # Only successes go in the tracking log. Recording a failure would make the
-        # next run skip it and report success without having done anything.
+        # Only successes go in the tracking log, which older versions read as "skip this".
+        # Failures are remembered in the status record instead.
         if succeeded:
             source_dir = source_file_path.parent
             output_folder = source_dir / sample_movie
             self._add_to_processed_files_log(source_file_path, output_folder)
+            self._record_status(sample_movie, dataset_status.SUCCESS, "processing completed",
+                                source_file_path)
         else:
+            reason = self._failure_reason or self._diagnose_xds_failure(
+                source_file_path.parent / sample_movie / "auto_process", sample_movie)
+            self._record_status(sample_movie, dataset_status.FAILED, reason, source_file_path)
             self.log_print(
-                f"Processing did not complete for {filename}; not recording it as "
-                "processed, so a later run will try again")
+                f"Processing did not complete for {filename}: {reason}. Later runs will skip "
+                "it unless --retry-failed or --reprocess is given")
 
         return succeeded
+
+    def _diagnose_xds_failure(self, auto_process_dir: Path, sample_movie: str) -> str:
+        """Name the stage that failed, from the files XDS left behind."""
+        def missing(name):
+            return not (auto_process_dir / name).is_file()
+
+        if missing("XDS.INP"):
+            return "XDS.INP was not written"
+        if missing("XPARM.XDS"):
+            return "indexing failed: no XPARM.XDS after 10 retries"
+        if missing("INTEGRATE.HKL"):
+            return "integration failed: no INTEGRATE.HKL"
+        if missing("CORRECT.LP"):
+            return "CORRECT did not complete: no CORRECT.LP"
+        if missing("XDS_ASCII.HKL"):
+            return "CORRECT did not produce XDS_ASCII.HKL"
+        if missing(f"{sample_movie}.hkl"):
+            return f"scaling or conversion failed: no {sample_movie}.hkl"
+        if self.params.pointless and missing("pointless.LP"):
+            return "pointless failed"
+        return "XDS processing did not complete (see autoprocess.log)"
 
 
 def main():

@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .autoprocess import CrystallographyProcessor
+from .autoprocess import EXIT_FAILED, EXIT_NO_INPUT, EXIT_OK, CrystallographyProcessor
 from .config.parameters import ProcessingParameters
 from .core.beam_center_detector import (
     BeamCenterDetector,
@@ -1000,14 +1000,13 @@ class PreConvertedProcessor:
         return folders_to_process
 
     def process_all(self) -> int:
-        """Process folders. Returns an exit code: 0 ok, 1 something failed."""
+        """Process folders. Returns an exit code, as autoprocess: 0 ok, 1 something failed,
+        3 nothing usable to process was found."""
         valid_folders = self._get_folders_to_process()
 
         if not valid_folders:
             self.processor.log_print("No valid folders with pre-converted images found")
-            # Being pointed at specific paths and processing nothing is a failure;
-            # a bare sweep that finds nothing is a legitimate no-op.
-            return 1 if getattr(self.params, 'paths', None) else 0
+            return EXIT_NO_INPUT
 
         self.processor.log_print(f"Found {len(valid_folders)} folders to process")
         self.processor.log_print(f"Backups will be stored in individual {self.BACKUP_FOLDER} folders")
@@ -1026,7 +1025,7 @@ class PreConvertedProcessor:
         self.processor.log_print(f"Failed: {failed}")
         self.processor.log_print(f"Backups stored in respective {self.BACKUP_FOLDER} folders")
 
-        return 1 if failed else 0
+        return EXIT_FAILED if failed else EXIT_OK
 
 def parse_arguments() -> ExtendedProcessingParameters:
     """Parse arguments for image_process using unified CLI parser (without --reprocess)"""

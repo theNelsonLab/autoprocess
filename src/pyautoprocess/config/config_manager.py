@@ -10,6 +10,85 @@ from typing import Dict, Optional
 from .parameters import ProcessingParameters
 
 
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value) -> bool:
+    return (_is_int(value) or isinstance(value, float)) and not isinstance(value, bool)
+
+
+def _is_numeric_text(value) -> bool:
+    """A number, or a string holding one (the built-in configs store some values as text)."""
+    if _is_number(value):
+        return True
+    if isinstance(value, str):
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
+    return False
+
+
+def _is_axis(value) -> bool:
+    parts = value.split() if isinstance(value, str) else []
+    return len(parts) == 3 and all(_is_numeric_text(p) for p in parts)
+
+
+SUPPORTED_EXTENSIONS = ('.mrc', '.ser', '.tvips')
+
+# The --config-file schema: field -> (required, check, description). Documented in the README
+# under "Custom microscope configurations"; keep the two in step.
+CONFIG_SCHEMA = {
+    'rotation_axis':    (True,  _is_axis, 'three numbers in a string, e.g. "-1 0 0"'),
+    'frame_size':       (True,  _is_int, 'an integer (pixels)'),
+    'signal_pixel':     (True,  _is_int, 'an integer'),
+    'min_pixel':        (True,  _is_int, 'an integer'),
+    'background_pixel': (True,  _is_int, 'an integer'),
+    'pixel_size':       (True,  _is_number, 'a number (mm)'),
+    'wavelength':       (True,  _is_numeric_text, 'a number or numeric string (A)'),
+    'beam_center_x':    (True,  _is_number, 'a number (pixels)'),
+    'beam_center_y':    (True,  _is_number, 'a number (pixels)'),
+    'file_extension':   (True,  lambda v: v in SUPPORTED_EXTENSIONS, f'one of {", ".join(SUPPORTED_EXTENSIONS)}'),
+    'value_range_min':  (False, _is_number, 'a number'),
+    'value_range_max':  (False, _is_number, 'a number'),
+    'detector_distance': (False, _is_numeric_text, 'a number or numeric string (mm)'),
+    'rotation':         (False, _is_numeric_text, 'a number or numeric string (deg/s)'),
+    'exposure':         (False, _is_numeric_text, 'a number or numeric string (s)'),
+    'background_range_start': (False, _is_int, 'an integer (frame)'),
+    'background_range_end':   (False, _is_int, 'an integer (frame)'),
+    'microscope_config': (False, lambda v: isinstance(v, str), 'a string (ignored; the key is the name)'),
+}
+
+
+def validate_config_entry(name: str, entry) -> list:
+    """Problems with one configuration entry, each naming the entry and the field."""
+    if not isinstance(entry, dict):
+        return [f"entry '{name}': must be a JSON object of settings, got {type(entry).__name__}"]
+    problems = []
+    for field, (required, check, description) in CONFIG_SCHEMA.items():
+        if field not in entry:
+            if required:
+                problems.append(f"entry '{name}', field '{field}': missing (required; {description})")
+        elif not check(entry[field]):
+            problems.append(f"entry '{name}', field '{field}': must be {description}, "
+                            f"got {entry[field]!r}")
+    for field in entry:
+        if field not in CONFIG_SCHEMA:
+            problems.append(f"entry '{name}', field '{field}': unknown field")
+    return problems
+
+
+def list_microscope_configs(config_file: Optional[str] = None) -> list:
+    """Names of the available microscope configurations, including any added by config_file.
+
+    The supported way for other tools to discover names; do not read the package's data
+    files directly. Raises ValueError for an invalid config_file.
+    """
+    return ConfigLoader(config_file).get_available_configs()
+
+
 class ConfigLoader:
     """Microscope configurations: the packaged set, optionally extended by a user file.
 
@@ -53,13 +132,10 @@ class ConfigLoader:
 
         # Check every entry now, not just the one this run selects, so a mistake in the file
         # is reported the first time it is used rather than on some later run.
-        for name, entry in user_configs.items():
-            if not isinstance(entry, dict):
-                raise ValueError(f"Config file {path}: entry '{name}' must be a JSON object")
-            try:
-                self._to_parameters(name, entry)
-            except TypeError as e:
-                raise ValueError(f"Config file {path}: entry '{name}' is invalid: {e}") from e
+        problems = [p for name, entry in user_configs.items()
+                    for p in validate_config_entry(name, entry)]
+        if problems:
+            raise ValueError(f"Config file {path} is invalid:\n  " + "\n  ".join(problems))
 
         replaced = sorted(n for n in user_configs if n in self.configs)
         added = sorted(n for n in user_configs if n not in self.configs)

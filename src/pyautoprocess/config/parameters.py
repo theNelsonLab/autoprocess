@@ -34,6 +34,8 @@ class ProcessingParameters:
     friedel: bool = True
     paths: list = None
     reprocess: bool = False
+    # Retry datasets whose status record says they failed in an earlier run.
+    retry_failed: bool = False
     verbose: bool = False
     res_range: Optional[float] = None
     min_res: Optional[float] = None

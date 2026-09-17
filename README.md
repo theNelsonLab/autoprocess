@@ -75,10 +75,15 @@ Positional Arguments:
 Microscope Configuration:
   --microscope-config CONFIG  Choose instrument configuration (default: default)
   --config-file FILE          JSON of extra microscope configurations, added to the
-                              built-in set (a built-in name is replaced entirely)
+                              built-in set (a built-in name is replaced entirely).
+                              See "Custom microscope configurations"
+  --list-configs              Print the available configuration names, one per line
+                              (including any from --config-file), and exit
 
 Processing Control:
   --reprocess                 Reprocess files even if they have been processed before
+  --retry-failed              Try again datasets that failed in an earlier run (without it
+                              they are skipped and the exit status is 1)
   --pointless                 Run pointless for space group analysis
   --parallel                  Use parallel XDS (xds_par) instead of serial XDS
   --dqa                       Enable diffraction quality analysis and frame selection
@@ -123,7 +128,8 @@ Experimental Features (opt-in, off by default):
                            value was chosen.
 
 Advanced XDS Parameters:
-  --friedel BOOL           Set Friedel's law for XDS (true or false, default: true)
+  --friedel BOOL           Set Friedel's law for XDS (default: true). Accepts true/false,
+                           yes/no, 1/0, on/off in any case; anything else exits with status 2
 ```
 
 
@@ -161,7 +167,10 @@ Frame Selection:
 Microscope Configuration:
   --microscope-config CONFIG  Choose instrument configuration (default: default)
   --config-file FILE          JSON of extra microscope configurations, added to the
-                              built-in set (a built-in name is replaced entirely)
+                              built-in set (a built-in name is replaced entirely).
+                              See "Custom microscope configurations"
+  --list-configs              Print the available configuration names, one per line
+                              (including any from --config-file), and exit
 
 Processing Control:
   --pointless                 Run pointless for space group analysis
@@ -206,7 +215,8 @@ Experimental Features (opt-in, off by default):
                            value was chosen.
 
 Advanced XDS Parameters:
-  --friedel BOOL           Set Friedel's law for XDS (true or false, default: true)
+  --friedel BOOL           Set Friedel's law for XDS (default: true). Accepts true/false,
+                           yes/no, 1/0, on/off in any case; anything else exits with status 2
 
 Examples:
   # Process TIF images in current directory
@@ -577,24 +587,151 @@ working_directory/
 
 ## Exit Codes
 
-`autoprocess` and `image_process` report the outcome through their exit status, so a wrapper
-script -- or `monitorED` -- can tell whether anything was actually produced:
+`autoprocess` and `image_process` report the outcome through their exit status. **These codes are
+a stable contract**: callers such as REyes and `monitorED` depend on them, and they will not be
+renumbered.
 
 | code | meaning |
 |------|---------|
-| 0 | everything attempted completed, or there was legitimately nothing to do |
-| 1 | one or more datasets failed, or the tool was pointed at something and produced nothing |
-| 2 | the command itself was wrong (e.g. `--id` with more than one input file) |
+| 0 | every dataset attempted succeeded, or was already processed successfully |
+| 1 | at least one dataset failed, in this run or (for `autoprocess`) in an earlier run and was not retried |
+| 2 | the command itself was wrong: an unknown `--microscope-config`, an invalid `--config-file`, a bad `--friedel` value, `--id` with more than one input file |
+| 3 | nothing usable to process was found: no movie files (or image folders), only file names that do not follow the naming convention, or a given path that is missing or empty |
 
-Two details worth knowing:
+> **Breaking change from 0.3.x.** Up to 0.3.x (the last release on PyPI before 0.5.1) both tools
+> always exited 0. Non-zero codes 1 and 2 arrived in 0.5.0; code 3 in 0.5.2, which also changed
+> an empty folder from exit 0 to 3.
 
-- A bare sweep of a directory containing nothing to process exits **0** -- that is a legitimate
-  no-op. Being given an explicit path and processing nothing exits **1**.
-- Files whose names do not follow the convention are logged and skipped, but do **not** fail a run
-  that processed something. A directory holding a few datasets alongside unrelated `.mrc` output
-  is ordinary. If nothing usable is found at all, the exit code is 1.
-- A dataset that fails is **not** written to the tracking log, so a later run retries it rather
-  than skipping it and reporting success without having done any work.
+Details:
+
+- Precedence when several apply: 2, then 1, then 0, then 3. A run that processed some datasets
+  and failed one exits 1.
+- Files whose names do not follow the convention are logged and skipped. They do not fail a run
+  that found real datasets; a folder holding datasets alongside unrelated `.mrc` output is
+  ordinary. Only when nothing usable is found does the run exit 3.
+- To tell outcomes apart per dataset, read the result files described next rather than the exit
+  status or the presence of `autoprocess_logs/`, which is created at start-up.
+
+## Result files
+
+For every dataset it handles, `autoprocess` writes `autoprocess_logs/<dataset>_status.json` in
+the directory it was run from, replacing any earlier record for that dataset:
+
+```json
+{
+  "schema_version": 1,
+  "dataset": "sample-mov1",
+  "status": "failed",
+  "reason": "indexing failed: no XPARM.XDS after 10 retries",
+  "source_file": "/data/run1/sample-mov1_960_0.3_3.mrc",
+  "output_dir": "/data/run1/sample-mov1",
+  "outputs": {
+    "XDS.INP": "/data/run1/sample-mov1/auto_process/XDS.INP"
+  },
+  "pyautoprocess_version": "0.5.2",
+  "updated_at": "2026-09-17T14:03:12"
+}
+```
+
+- `status` is `success`, `failed` or `skipped`. `skipped` means the dataset was already processed
+  by a version that wrote no record; a dataset already recorded as `success` keeps that record.
+- `reason` is a short human-readable explanation, e.g. `processing completed`,
+  `no good-quality frames found (--dqa)`, `integration failed: no INTEGRATE.HKL`.
+- `outputs` maps each key output file that exists to its absolute path. The files looked for are
+  `XDS.INP`, `XPARM.XDS`, `INTEGRATE.HKL`, `CORRECT.LP`, `XDS_ASCII.HKL`, `<dataset>.ahkl`,
+  `<dataset>.hkl`, `stats.LP` and `pointless.LP`, all in `<output_dir>/auto_process/`.
+- No record is written for files whose names are not datasets (they do not follow the naming
+  convention).
+- Fields may be added in later versions; `schema_version` changes only if an existing field
+  changes meaning.
+
+### Failed datasets are remembered
+
+A dataset whose record says `failed` is **not** processed again by a later run: it is skipped with
+a log line giving the recorded reason, and the run exits 1. This keeps a monitor that restarts from
+re-running XDS on a dataset known to fail. To try again:
+
+- `--retry-failed` retries only datasets recorded as failed;
+- `--reprocess` reprocesses everything, including successes.
+
+A record only counts for the exact source file it names, so a same-named dataset in another folder
+is unaffected. Successful datasets are also listed in `autoprocess_logs/autoprocess_tracking.log`,
+as before; failures are never written there.
+
+## Custom microscope configurations
+
+`--config-file FILE` adds configurations to the built-in set. The file is a JSON object mapping each
+configuration name to its settings. An entry whose name matches a built-in configuration replaces
+it entirely; nothing is inherited from the built-in. Every entry is validated when the file is
+loaded, and any problem is a usage error (exit 2) naming the entry and the field.
+
+A complete example with one new configuration:
+
+```json
+{
+  "Lab-Talos-Apollo": {
+    "rotation_axis": "-1 0 0",
+    "frame_size": 4096,
+    "signal_pixel": 7,
+    "min_pixel": 7,
+    "background_pixel": 4,
+    "pixel_size": 0.008,
+    "wavelength": "0.0251",
+    "beam_center_x": 2048,
+    "beam_center_y": 2040,
+    "file_extension": ".mrc",
+    "value_range_min": 10.0,
+    "value_range_max": 65535.0,
+    "detector_distance": "560",
+    "rotation": "1",
+    "exposure": "1",
+    "background_range_start": 1,
+    "background_range_end": 10
+  }
+}
+```
+
+| field | required | type |
+|-------|----------|------|
+| `rotation_axis` | yes | string of three numbers, e.g. `"-1 0 0"` |
+| `frame_size` | yes | integer (pixels) |
+| `signal_pixel`, `min_pixel`, `background_pixel` | yes | integer |
+| `pixel_size` | yes | number (mm) |
+| `wavelength` | yes | number or numeric string (Å) |
+| `beam_center_x`, `beam_center_y` | yes | number (pixels) |
+| `file_extension` | yes | `".mrc"`, `".ser"` or `".tvips"` |
+| `value_range_min`, `value_range_max` | no | number |
+| `detector_distance` (mm), `rotation` (deg/s), `exposure` (s) | no | number or numeric string; used when the filename does not supply the value |
+| `background_range_start`, `background_range_end` | no | integer (frame) |
+| `microscope_config` | no | string; ignored, the key is the name |
+
+Any other field is rejected as unknown, so a misspelling such as `beam_centre_x` is caught rather
+than ignored. A validation error looks like:
+
+```
+Config file lab.json is invalid:
+  entry 'Lab-Talos-Apollo', field 'frame_size': must be an integer (pixels), got '4096'
+  entry 'Lab-Talos-Apollo', field 'beam_center_x': missing (required; a number (pixels))
+  entry 'Lab-Talos-Apollo', field 'beam_centre_x': unknown field
+```
+
+### Listing configuration names
+
+Use either of these rather than reading the package's `data/microscope_configs.json`, which is
+internal:
+
+```bash
+autoprocess --list-configs                          # built-in names, one per line
+autoprocess --list-configs --config-file lab.json   # plus the names the file adds
+```
+
+```python
+import pyautoprocess
+pyautoprocess.list_microscope_configs()                    # ['Arctica-CETA-ser-SM', ...]
+pyautoprocess.list_microscope_configs("lab.json")          # raises ValueError if the file is invalid
+```
+
+`--list-configs` exits 0 and creates no files or folders.
 
 ## Error Handling
 - All scripts include comprehensive error handling and logging
@@ -619,6 +756,22 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.5.2**: Contract for callers such as REyes
+  - **Breaking:** a run that finds nothing usable to process now exits **3** instead of 0 (or 1
+    when a path was given), for both `autoprocess` and `image_process`. Exit codes 0-3 are now a
+    documented, stable contract
+  - New per-dataset result files, `autoprocess_logs/<dataset>_status.json`, recording status
+    (`success`, `failed`, `skipped`), a reason naming the stage that failed, and the key output
+    files produced
+  - **Behaviour change:** failed datasets are remembered. A later run skips a dataset recorded as
+    failed and exits 1 instead of re-running XDS; new `--retry-failed` tries failures again, and
+    `--reprocess` still reprocesses everything
+  - `--config-file` entries are checked against a documented schema. Errors name the entry and the
+    field, report every problem at once, and reject unknown (e.g. misspelled) fields
+  - New `--list-configs` (with or without `--config-file`) and
+    `pyautoprocess.list_microscope_configs()` to discover configuration names
+  - `--friedel` accepts true/false, yes/no, 1/0 and on/off in any case, and rejects anything else
+    with exit 2. Previously any value other than `true` silently meant false
 - **v0.5.1**: Configuration and robustness fixes
   - `--config-file` now works. It was accepted but never read, so a user's own microscope
     configuration was silently ignored. Its entries are added to the built-in configurations;
@@ -633,9 +786,13 @@ This project is licensed under the GPL-3.0-or-later License.
   - The distance, rotation and exposure fields of a filename must be numeric; a name that fails
     is skipped with a message naming the field. Such skipped names only cause a non-zero exit
     when nothing usable was found
+  - First release on PyPI since 0.3.0, so it is the first PyPI release with the
+    `F30-TVIPS-SM` configuration (added in 0.3.2), `--min-res`, TVIPS support, monitorED and
+    the other changes from 0.3.2 to 0.5.0 listed below
 - **v0.5.0**: Experimental auto-detection, reproducibility, and correctness fixes
-  - `autoprocess` and `image_process` now return meaningful exit codes instead of always
-    reporting success; failed datasets are no longer recorded as processed
+  - **Breaking:** `autoprocess` and `image_process` now return meaningful exit codes (1 failed,
+    2 usage error) instead of always exiting 0; failed datasets are no longer recorded as
+    processed. See "Exit Codes"
   - New `--seed N`: makes the random indexing-retry search reproducible. Without it, a dataset
     that fails first-pass indexing can return a different space group and unit cell on every run
   - New opt-in `--auto-rotation-axis`: derives the rotation-axis sign from the tilt-direction

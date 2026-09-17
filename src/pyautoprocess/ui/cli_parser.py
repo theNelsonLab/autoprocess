@@ -4,6 +4,7 @@ Provides selective argument imports for each tool
 """
 import argparse
 import os
+import sys
 from typing import Set, Optional
 from ..config.config_manager import ConfigLoader
 from ..config.parameters import ProcessingParameters
@@ -16,11 +17,25 @@ COMMON_ARGS = {
     'wavelength', 'beam_center_x', 'beam_center_y', 'file_extension',
     'detector_distance', 'exposure', 'rotation', 'pointless', 'parallel',
     'dqa', 'verbose', 'paths', 'res_range', 'min_res', 'friedel', 'background_range',
-    'auto_rotation_axis', 'beam_center', 'seed'
+    'auto_rotation_axis', 'beam_center', 'seed', 'list_configs'
 }
 
-AUTOPROCESS_ONLY_ARGS = {'reprocess', 'sample_id'}
+AUTOPROCESS_ONLY_ARGS = {'reprocess', 'retry_failed', 'sample_id'}
 IMAGE_PROCESS_ONLY_ARGS = {'smv', 'trim_front', 'trim_end'}
+
+_TRUE_WORDS = {'true', 't', 'yes', 'y', '1', 'on'}
+_FALSE_WORDS = {'false', 'f', 'no', 'n', '0', 'off'}
+
+
+def parse_bool(value: str) -> bool:
+    """Accept the usual boolean spellings in any case; reject anything else (exit 2)."""
+    word = str(value).strip().lower()
+    if word in _TRUE_WORDS:
+        return True
+    if word in _FALSE_WORDS:
+        return False
+    raise argparse.ArgumentTypeError(
+        f"expected true or false (also yes/no, 1/0, on/off), got {value!r}")
 
 ALL_ARGS = COMMON_ARGS | AUTOPROCESS_ONLY_ARGS | IMAGE_PROCESS_ONLY_ARGS
 
@@ -51,12 +66,20 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     config_file_parser = argparse.ArgumentParser(add_help=False)
     if 'config_file' in args_to_include:
         config_file_parser.add_argument('--config-file', type=str, default=None)
+    if 'list_configs' in args_to_include:
+        config_file_parser.add_argument('--list-configs', action='store_true')
     config_file_args, _ = config_file_parser.parse_known_args()
     try:
         config_loader = ConfigLoader(getattr(config_file_args, 'config_file', None))
     except ValueError as e:
         config_file_parser.error(str(e))
     available_configs = config_loader.get_available_configs()
+
+    # Answered before anything else is parsed or created, so it needs no data and leaves no
+    # autoprocess_logs/ behind. One name per line, for scripts.
+    if getattr(config_file_args, 'list_configs', False):
+        print('\n'.join(available_configs))
+        sys.exit(0)
 
     pre_parser = argparse.ArgumentParser(add_help=False)
     if 'microscope_config' in args_to_include:
@@ -104,6 +127,11 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     add_argument_if_needed('microscope_config', '--microscope-config',
                           type=str, default='default', choices=available_configs,
                           help='Choose instrument configuration')
+
+    add_argument_if_needed('list_configs', '--list-configs',
+                          action='store_true',
+                          help='Print the available microscope configuration names, one per line, '
+                               'including any added by --config-file, and exit')
 
     add_argument_if_needed('config_file', '--config-file',
                           type=str, default=None,
@@ -213,8 +241,8 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           help='Minimum resolution for XSCALE in Angstroms (overrides INCLUDE_RESOLUTION_RANGE for scaling)')
 
     add_argument_if_needed('friedel', '--friedel',
-                          type=lambda x: x.lower() == 'true', default=True,
-                          help="Set Friedel's law for XDS (true or false, default: true)")
+                          type=parse_bool, default=True, metavar='BOOL',
+                          help="Set Friedel's law for XDS: true/false, yes/no, 1/0 or on/off")
 
     config_bg_default = None
     if config.background_range_start is not None and config.background_range_end is not None:
@@ -227,6 +255,11 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     add_argument_if_needed('reprocess', '--reprocess',
                           action='store_true',
                           help='Reprocess files even if they have been processed before')
+
+    add_argument_if_needed('retry_failed', '--retry-failed',
+                          action='store_true',
+                          help='Try again datasets that failed in an earlier run. Without it they are '
+                               'skipped (and the exit status is 1); --reprocess reruns everything')
 
     add_argument_if_needed('sample_id', '--id',
                           dest='sample_id', type=str, default=None,
@@ -295,6 +328,7 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['seed'] = get_arg_value('seed', None)
     params['paths'] = get_arg_value('paths', [])
     params['reprocess'] = get_arg_value('reprocess', False)
+    params['retry_failed'] = get_arg_value('retry_failed', False)
     params['verbose'] = get_arg_value('verbose', False)
     params['res_range'] = get_arg_value('res_range', None)
     params['friedel'] = get_arg_value('friedel', True)

@@ -107,8 +107,8 @@ def test_config_file_replaces_a_built_in_entry_whole(tmp_path, caplog):
     ('{not json', 'not valid JSON'),
     ('[]', 'must be a JSON object'),
     ('{}', 'must be a JSON object'),
-    ('{"X": 5}', "entry 'X' must be a JSON object"),
-    ('{"X": {"rotation_axis": "1 0 0"}}', "entry 'X' is invalid"),          # missing fields
+    ('{"X": 5}', "entry 'X': must be a JSON object"),
+    ('{"X": {"rotation_axis": "1 0 0"}}', "entry 'X', field 'frame_size': missing"),
 ])
 def test_bad_config_file_raises(tmp_path, content, message):
     path = tmp_path / 'mine.json'
@@ -122,8 +122,54 @@ def test_misspelled_field_in_an_unselected_entry_is_still_caught(tmp_path):
     entry = scope()
     entry['beam_centre_x'] = entry.pop('beam_center_x')
     path = write_json(tmp_path / 'mine.json', {'Good': scope(), 'Typo': entry})
-    with pytest.raises(ValueError, match="entry 'Typo' is invalid"):
+    with pytest.raises(ValueError) as err:
         ConfigLoader(str(path))
+    message = str(err.value)
+    assert "entry 'Typo', field 'beam_centre_x': unknown field" in message
+    assert "entry 'Typo', field 'beam_center_x': missing" in message
+    assert "'Good'" not in message
+
+
+@pytest.mark.parametrize('field, value', [
+    ('frame_size', '2048'),          # a string where an integer is needed
+    ('frame_size', True),            # JSON true is not an integer
+    ('rotation_axis', '-1 0'),       # two components
+    ('file_extension', '.tif'),
+    ('pixel_size', 'small'),
+])
+def test_wrong_type_names_entry_field_and_value(tmp_path, field, value):
+    path = write_json(tmp_path / 'mine.json', {'Lab-Scope': scope(**{field: value})})
+    with pytest.raises(ValueError, match=f"entry 'Lab-Scope', field '{field}': must be"):
+        ConfigLoader(str(path))
+
+
+def test_every_problem_is_reported_at_once(tmp_path):
+    bad = scope(frame_size='x', file_extension='.tif')
+    path = write_json(tmp_path / 'mine.json', {'A': bad, 'B': {'rotation_axis': '1 0 0'}})
+    with pytest.raises(ValueError) as err:
+        ConfigLoader(str(path))
+    message = str(err.value)
+    for expected in ("'A', field 'frame_size'", "'A', field 'file_extension'",
+                     "'B', field 'pixel_size': missing"):
+        assert expected in message
+
+
+def test_built_in_configs_satisfy_the_documented_schema():
+    from pyautoprocess.config.config_manager import validate_config_entry
+    for name, entry in PACKAGED.items():
+        assert validate_config_entry(name, entry) == [], name
+
+
+def test_readme_example_config_is_valid(tmp_path):
+    """The README's --config-file example must stay loadable."""
+    import re
+    from pathlib import Path
+    readme = (Path(__file__).parents[1] / 'README.md').read_text()
+    section = readme.split('## Custom microscope configurations', 1)[1]
+    example = re.search(r'```json\n(.*?)```', section, re.S).group(1)
+    path = tmp_path / 'lab_configs.json'
+    path.write_text(example)
+    assert 'Lab-Talos-Apollo' in ConfigLoader(str(path)).configs
 
 
 # ------------------------------------------------------------------ --config-file: CLI
@@ -179,3 +225,60 @@ def test_monitored_rejects_a_bad_config_file_at_startup(monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as exc:
         monitor_ed.main()
     assert exc.value.code == 2
+
+
+# ------------------------------------------------------------------ discovering names
+
+def test_python_api_lists_built_in_and_file_names(tmp_path):
+    import pyautoprocess
+    assert pyautoprocess.list_microscope_configs() == list(PACKAGED)
+    path = write_json(tmp_path / 'mine.json', {'My-Scope': scope()})
+    assert pyautoprocess.list_microscope_configs(str(path)) == list(PACKAGED) + ['My-Scope']
+
+
+@pytest.mark.parametrize('tool', ['autoprocess', 'image_process'])
+def test_list_configs_prints_names_and_creates_nothing(monkeypatch, tmp_path, capsys, tool):
+    path = write_json(tmp_path / 'mine.json', {'My-Scope': scope()})
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, 'argv', [tool, '--list-configs', '--config-file', str(path)])
+    with pytest.raises(SystemExit) as exc:
+        parse_arguments(tool)
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.splitlines() == list(PACKAGED) + ['My-Scope']
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['mine.json']
+
+
+def test_list_configs_via_main_leaves_no_log_folder(monkeypatch, tmp_path, capsys):
+    from pyautoprocess.autoprocess import main
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, 'argv', ['autoprocess', '--list-configs'])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 0
+    assert 'F30-TVIPS-SM' in capsys.readouterr().out.splitlines()
+    assert not (tmp_path / 'autoprocess_logs').exists()
+
+
+# ------------------------------------------------------------------ --friedel
+
+@pytest.mark.parametrize('word, expected', [
+    ('true', True), ('True', True), ('TRUE', True), ('yes', True), ('Y', True), ('1', True), ('on', True),
+    ('false', False), ('False', False), ('no', False), ('N', False), ('0', False), ('off', False),
+])
+def test_friedel_accepts_common_boolean_spellings(monkeypatch, word, expected):
+    monkeypatch.setattr(sys, 'argv', ['autoprocess', '--friedel', word])
+    assert parse_arguments('autoprocess').friedel is expected
+
+
+def test_friedel_defaults_to_true(monkeypatch):
+    monkeypatch.setattr(sys, 'argv', ['autoprocess'])
+    assert parse_arguments('autoprocess').friedel is True
+
+
+@pytest.mark.parametrize('word', ['maybe', 'ture', '2', ''])
+def test_friedel_rejects_anything_else_with_exit_2(monkeypatch, capsys, word):
+    monkeypatch.setattr(sys, 'argv', ['autoprocess', '--friedel', word])
+    with pytest.raises(SystemExit) as exc:
+        parse_arguments('autoprocess')
+    assert exc.value.code == 2
+    assert 'expected true or false' in capsys.readouterr().err
