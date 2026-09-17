@@ -619,6 +619,20 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.5.1**: Configuration and robustness fixes
+  - `--config-file` now works. It was accepted but never read, so a user's own microscope
+    configuration was silently ignored. Its entries are added to the built-in configurations;
+    an entry with a built-in name replaces that configuration entirely. The file is validated
+    on load, and a missing or malformed file is a usage error (exit 2)
+  - A missing or unreadable packaged configuration, or an unknown microscope name, now stops the
+    run with an error. Previously both fell back silently to generic default settings, which
+    processed the data with the wrong detector geometry while appearing to succeed
+  - Output is written beside the path given, not beside a symlink's target
+  - `--beam-center` accepts a consensus of the frame estimates instead of rejecting the whole set
+    whenever the two most distant estimates disagree, which had discarded correct centres
+  - The distance, rotation and exposure fields of a filename must be numeric; a name that fails
+    is skipped with a message naming the field. Such skipped names only cause a non-zero exit
+    when nothing usable was found
 - **v0.5.0**: Experimental auto-detection, reproducibility, and correctness fixes
   - `autoprocess` and `image_process` now return meaningful exit codes instead of always
     reporting success; failed datasets are no longer recorded as processed
