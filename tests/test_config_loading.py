@@ -56,3 +56,24 @@ def test_unreadable_package_uses_local_file_and_says_so(monkeypatch, tmp_path, c
         configs = ConfigLoader(config_path=str(local)).configs
     assert configs == {'MyScope': {'rotation_axis': '1 0 0'}}
     assert str(local) in caplog.text
+
+
+def test_unknown_microscope_name_raises_and_lists_available():
+    loader = ConfigLoader()
+    with pytest.raises(ValueError, match="Unknown microscope configuration 'No-Such-Scope'") as err:
+        loader.get_config('No-Such-Scope')
+    for name in loader.get_available_configs():
+        assert name in str(err.value)
+
+
+def test_local_config_without_requested_name_raises(monkeypatch, tmp_path):
+    _break_package_resource(monkeypatch, tmp_path)
+    local = tmp_path / 'local_configs.json'
+    local.write_text(json.dumps({'MyScope': {'rotation_axis': '1 0 0'}}))
+    with pytest.raises(ValueError, match="Available: MyScope"):
+        ConfigLoader(config_path=str(local)).get_config('default')
+
+
+@pytest.mark.parametrize('name', ['default', 'F30-TVIPS-SM', 'Arctica-CETA-mrc-SM'])
+def test_known_microscope_name_loads(name):
+    assert ConfigLoader().get_config(name).microscope_config == name

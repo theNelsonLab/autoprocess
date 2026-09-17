@@ -39,36 +39,16 @@ class ConfigLoader:
             f"unreadable ({pkg_problem}) and no local {self.config_path} exists. "
             f"Reinstall pyautoprocess.")
 
-    @staticmethod
-    def _get_default_config() -> Dict:
-        """Return default configuration"""
-        return {
-            "rotation_axis": "-1 0 0",
-            "frame_size": 2048,
-            "signal_pixel": 7,
-            "min_pixel": 7,
-            "background_pixel": 4,
-            "pixel_size": 0.028,
-            "wavelength": "0.0251",
-            "beam_center_x": 1030,
-            "beam_center_y": 1040,
-            "file_extension": ".ser",
-            "value_range_min": 6000.0,
-            "value_range_max": 30000.0,
-            "detector_distance": "960",
-            "rotation": "0.3",
-            "exposure": "3",
-            "background_range_start": 1,
-            "background_range_end": 10
-        }
-
     def get_config(self, microscope_name: str) -> ProcessingParameters:
+        # An unknown name is an error, not a cue to substitute generic settings: those
+        # would process the data with the wrong geometry while appearing to succeed.
         if microscope_name not in self.configs:
-            logging.warning(f"Configuration '{microscope_name}' not found, using default")
-            config = self._get_default_config()
-        else:
-            config = self.configs[microscope_name]
-            logging.info(f"Loaded configuration for {microscope_name}")
+            available = ', '.join(sorted(self.configs))
+            raise ValueError(
+                f"Unknown microscope configuration '{microscope_name}'. "
+                f"Available: {available}")
+        config = self.configs[microscope_name]
+        logging.info(f"Loaded configuration for {microscope_name}")
 
         # Remove microscope_config from parameters if present, and route
         # filename-derived fields (detector_distance/rotation/exposure) into
