@@ -658,6 +658,23 @@ A record only counts for the exact source file it names, so a same-named dataset
 is unaffected. Successful datasets are also listed in `autoprocess_logs/autoprocess_tracking.log`,
 as before; failures are never written there.
 
+## F30 TVIPS data: two configurations
+
+TVIPS movies are converted to TIF exactly as recorded, with no flip or rotation. The lab's
+historical `.img` files (made with `tvips2smv`) hold the same frames mirrored left-right, so the
+same detector geometry is written differently for the two kinds of input:
+
+| configuration | use for | rotation axis | beam centre (X, Y) |
+|---|---|---|---|
+| `F30-TVIPS-SM` | raw `.tvips` movies (`autoprocess`) | `-0.8290 0.5592 0` | 1028, 1020 |
+| `F30-TVIPS-SMV-SM` | `.img` frames made by `tvips2smv` (`image_process --smv`) | `-0.8290 -0.5592 0` | 1020, 1020 |
+
+The beam-centre X is counted from the other edge. The rotation axis is not simply the X component
+negated: an axis is an axial vector, and mirroring the image also reverses the sense of rotation,
+so it becomes (X, -Y, -Z). Negating only X (`0.8290 -0.5592 0`) still indexes, but gives a
+wrong-handed near-solution with slightly distorted cells and lower ISa. Using the SMV geometry on
+raw `.tvips` frames can even "index" into a meaningless triclinic cell with ISa near 1.
+
 ## Custom microscope configurations
 
 `--config-file FILE` adds configurations to the built-in set. The file is a JSON object mapping each
@@ -772,6 +789,14 @@ This project is licensed under the GPL-3.0-or-later License.
     `pyautoprocess.list_microscope_configs()` to discover configuration names
   - `--friedel` accepts true/false, yes/no, 1/0 and on/off in any case, and rejects anything else
     with exit 2. Previously any value other than `true` silently meant false
+  - **Fixed F30 geometry for raw `.tvips` movies.** `F30-TVIPS-SM` had been calibrated on
+    `tvips2smv` `.img` frames, which are mirrored left-right relative to the raw frames that
+    `autoprocess` converts. Processing `.tvips` therefore used the wrong rotation axis and beam
+    centre, often ending in a meaningless triclinic cell. `F30-TVIPS-SM` now carries the
+    raw-orientation geometry (axis `-0.8290 0.5592 0`, beam centre X 1028) and gives the same cells
+    and comparable statistics as the SMV runs; the previous values move to the new
+    `F30-TVIPS-SMV-SM`, for `.img` frames. **If you ran `image_process --smv` with `F30-TVIPS-SM`,
+    switch to `F30-TVIPS-SMV-SM`.** See "F30 TVIPS data"
 - **v0.5.1**: Configuration and robustness fixes
   - `--config-file` now works. It was accepted but never read, so a user's own microscope
     configuration was silently ignored. Its entries are added to the built-in configurations;
@@ -804,7 +829,9 @@ This project is licensed under the GPL-3.0-or-later License.
   - Fixed `F30-TVIPS-SM` rotation axis, which had a sign error (`-0.8290 0.5592 0` ->
     `-0.8290 -0.5592 0`). Determined by running all four sign combinations through XDS on three
     datasets: the shipped value FAILED TO INDEX ENTIRELY on all three, so this configuration was
-    unusable without a manual `--rotation-axis` override
+    unusable without a manual `--rotation-axis` override. (Those tests used `tvips2smv` `.img`
+    frames. For raw `.tvips` movies the right value is in fact `-0.8290 0.5592 0`; 0.5.2 splits
+    the two into `F30-TVIPS-SM` and `F30-TVIPS-SMV-SM`.)
   - Fixed a missing `import json` in autoprocess.py that made every processor construction
     silently fail to load the Bravais-lattice data, papered over by three separate workarounds
   - Rotation axis and beam centre can now vary per dataset within a single run, instead of being
