@@ -16,25 +16,28 @@ class ConfigLoader:
         self.configs = self._load_configs()
 
     def _load_configs(self) -> Dict:
+        # The configs ship inside the package, so failing to read them means a broken
+        # install. That must stop the run: substituting a generic default would process
+        # every dataset with the wrong microscope geometry while looking like success.
         try:
-            # Try loading from package first
-            try:
-                with importlib.resources.open_text('pyautoprocess.data', 'microscope_configs.json') as f:
-                    return json.load(f)
-            except Exception as pkg_error:
-                logging.debug(f"Could not load from package: {pkg_error}")
+            resource = importlib.resources.files('pyautoprocess.data') / 'microscope_configs.json'
+            with resource.open('r', encoding='utf-8') as f:
+                return json.load(f)
+        except (OSError, ModuleNotFoundError, json.JSONDecodeError) as pkg_error:
+            pkg_problem = f"{type(pkg_error).__name__}: {pkg_error}"
 
-            # Try loading from local path
-            if Path(self.config_path).exists():
-                with open(self.config_path) as f:
-                    return json.load(f)
+        # A local file is an explicit substitute, so use it -- but say so.
+        if Path(self.config_path).exists():
+            logging.warning(
+                f"Could not read the packaged microscope configs ({pkg_problem}); "
+                f"using local file {self.config_path}")
+            with open(self.config_path, encoding='utf-8') as f:
+                return json.load(f)
 
-            logging.warning("No config file found, using default configuration")
-            return {"default": self._get_default_config()}
-
-        except Exception as e:
-            logging.error(f"Error loading config: {e}")
-            return {"default": self._get_default_config()}
+        raise RuntimeError(
+            f"Could not load microscope configs: packaged microscope_configs.json is "
+            f"unreadable ({pkg_problem}) and no local {self.config_path} exists. "
+            f"Reinstall pyautoprocess.")
 
     @staticmethod
     def _get_default_config() -> Dict:
