@@ -74,7 +74,8 @@ Positional Arguments:
 
 Microscope Configuration:
   --microscope-config CONFIG  Choose instrument configuration (default: default)
-  --config-file FILE          Path to microscope configuration file
+  --config-file FILE          JSON of extra microscope configurations, added to the
+                              built-in set (a built-in name is replaced entirely)
 
 Processing Control:
   --reprocess                 Reprocess files even if they have been processed before
@@ -159,7 +160,8 @@ Frame Selection:
 
 Microscope Configuration:
   --microscope-config CONFIG  Choose instrument configuration (default: default)
-  --config-file FILE          Path to microscope configuration file
+  --config-file FILE          JSON of extra microscope configurations, added to the
+                              built-in set (a built-in name is replaced entirely)
 
 Processing Control:
   --pointless                 Run pointless for space group analysis

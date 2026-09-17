@@ -397,11 +397,37 @@ Note:
     return parser
 
 
+def _absolutize_config_file(passthrough: List[str]) -> List[str]:
+    """Make a forwarded --config-file path absolute.
+
+    The child command runs from each movie's own directory, where a relative path given
+    on monitorED's command line would no longer point at the file.
+    """
+    args = list(passthrough)
+    for i, arg in enumerate(args):
+        if arg == "--config-file" and i + 1 < len(args):
+            args[i + 1] = os.path.abspath(args[i + 1])
+        elif arg.startswith("--config-file="):
+            args[i] = "--config-file=" + os.path.abspath(arg.split("=", 1)[1])
+    return args
+
+
 def main() -> int:
     # We need to separate monitorED's own flags from the passthrough flags.
     # Strategy: parse known args for monitorED, everything else is passthrough.
     parser = _build_parser()
     known_args, passthrough = parser.parse_known_args()
+    passthrough = _absolutize_config_file(passthrough)
+
+    # Check a forwarded config file now: otherwise every dataset would fail in turn, hours in.
+    config_file_parser = argparse.ArgumentParser(add_help=False)
+    config_file_parser.add_argument("--config-file", default=None)
+    config_file = config_file_parser.parse_known_args(passthrough)[0].config_file
+    if config_file is not None:
+        try:
+            ConfigLoader(config_file)
+        except ValueError as e:
+            parser.error(str(e))
 
     mode = "autoprocess" if known_args.autoprocess else "image_process"
 

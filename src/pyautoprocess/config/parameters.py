@@ -26,6 +26,8 @@ class ProcessingParameters:
     default_rotation: Optional[str] = None
     default_exposure: Optional[str] = None
     microscope_config: str = "default"
+    # User JSON that extended or replaced the built-in microscope configs, if any.
+    config_file: Optional[str] = None
     pointless: bool = False
     parallel: bool = False
     quality_analysis: bool = False

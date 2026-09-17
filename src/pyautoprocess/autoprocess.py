@@ -1756,6 +1756,8 @@ def main():
     # Log the current parameters being used
     processor.log_print("\nUsing processing parameters:")
     processor.log_print(f"Microscope: {params.microscope_config}")
+    if params.config_file:
+        processor.log_print(f"Microscope config file: {params.config_file}")
     processor.log_print(f"Rotation Axis: {params.rotation_axis}"
                         f"{' (base; may be flipped per dataset)' if params.auto_rotation_axis else ''}")
     processor.log_print(f"Auto Rotation Axis: "

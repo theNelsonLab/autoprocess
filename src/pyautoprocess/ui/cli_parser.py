@@ -3,6 +3,7 @@ Unified command line argument parsing for autoprocess and image_process
 Provides selective argument imports for each tool
 """
 import argparse
+import os
 from typing import Set, Optional
 from ..config.config_manager import ConfigLoader
 from ..config.parameters import ProcessingParameters
@@ -45,11 +46,19 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     else:
         raise ValueError(f"Unknown tool: {tool}")
 
-    # Create initial parser for microscope config
-    pre_parser = argparse.ArgumentParser(add_help=False)
-    config_loader = ConfigLoader()
+    # Pre-parse in two steps: --config-file decides which microscope names exist, and the
+    # chosen microscope supplies the defaults shown in the main parser's help.
+    config_file_parser = argparse.ArgumentParser(add_help=False)
+    if 'config_file' in args_to_include:
+        config_file_parser.add_argument('--config-file', type=str, default=None)
+    config_file_args, _ = config_file_parser.parse_known_args()
+    try:
+        config_loader = ConfigLoader(getattr(config_file_args, 'config_file', None))
+    except ValueError as e:
+        config_file_parser.error(str(e))
     available_configs = config_loader.get_available_configs()
 
+    pre_parser = argparse.ArgumentParser(add_help=False)
     if 'microscope_config' in args_to_include:
         pre_parser.add_argument('--microscope-config',
                                type=str,
@@ -58,7 +67,11 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
 
     # Get microscope config
     known_args, _ = pre_parser.parse_known_args()
-    config = config_loader.get_config(known_args.microscope_config if hasattr(known_args, 'microscope_config') else 'default')
+    try:
+        config = config_loader.get_config(getattr(known_args, 'microscope_config', 'default'))
+    except ValueError as e:
+        # e.g. a --config-file-only setup that defines no 'default' and none was chosen
+        pre_parser.error(str(e))
 
     # Create main parser
     tool_description = {
@@ -93,8 +106,10 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
                           help='Choose instrument configuration')
 
     add_argument_if_needed('config_file', '--config-file',
-                          type=str, default='microscope_configs.json',
-                          help='Path to microscope configuration file')
+                          type=str, default=None,
+                          help='JSON file of extra microscope configurations, keyed by name like '
+                               'the built-in ones. Its entries are added to the built-in set; an '
+                               'entry with a built-in name replaces that configuration entirely.')
 
     add_argument_if_needed('rotation_axis', '--rotation-axis',
                           type=str, default=None,
@@ -270,6 +285,8 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['default_exposure'] = config.default_exposure
     params['default_rotation'] = config.default_rotation
     params['microscope_config'] = get_arg_value('microscope_config', 'default')
+    _config_file = get_arg_value('config_file', None)
+    params['config_file'] = os.path.abspath(_config_file) if _config_file else None
     params['pointless'] = get_arg_value('pointless', False)
     params['parallel'] = get_arg_value('parallel', False)
     params['quality_analysis'] = get_arg_value('dqa', False)

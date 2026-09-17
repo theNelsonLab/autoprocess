@@ -1046,6 +1046,8 @@ def main():
     processor.print_image_banner()
     processor.processor.log_print("\nProcessing with parameters:")
     processor.processor.log_print(f"Microscope: {params.microscope_config}")
+    if params.config_file:
+        processor.processor.log_print(f"Microscope config file: {params.config_file}")
     processor.processor.log_print(f"Output folder: {processor.OUTPUT_FOLDER}")
     processor.processor.log_print(f"Rotation Axis: {params.rotation_axis}")
     processor.processor.log_print(f"Frame Size: {params.frame_size}")
