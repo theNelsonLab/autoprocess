@@ -773,6 +773,13 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.5.3**: 8-bit MRC movies are read as unsigned counts
+  - **Data fix:** MRC mode 0 is now read as unsigned (0-255) unless the IMOD header flag marks the
+    bytes as signed. DE Apollo movies are mode 0 with no IMOD stamp; until now every pixel above
+    127 counts was read as negative and written to the TIFs as 0, so the strongest reflection
+    pixels never reached XDS. Applies to `autoprocess`, `--dqa` and `mrc2tif`. Apollo movies
+    processed with earlier versions should be reprocessed. Other MRC modes, `.ser` and `.tvips`
+    are converted exactly as before
 - **v0.5.2**: Contract for callers such as REyes
   - **Breaking:** a run that finds nothing usable to process now exits **3** instead of 0 (or 1
     when a path was given), for both `autoprocess` and `image_process`. Exit codes 0-3 are now a
