@@ -4,7 +4,8 @@ import tifffile
 import argparse
 import warnings
 from pathlib import Path
-import mrcfile
+
+from pyautoprocess.mrc_io import read_mrc_data
 
 class MRCConverter:
     @staticmethod
@@ -62,15 +63,13 @@ class MRCConverter:
             images_dir = mrc_dir / 'images'
             images_dir.mkdir(exist_ok=True)
             
-            # Load .mrc movie using mrcfile package
-            with mrcfile.open(str(mrc_file_path)) as mrc:
-                # Handle single vs multi-frame data
-                if len(mrc.data.shape) == 2:
-                    frames = [mrc.data]
-                    overall_data = mrc.data
-                else:
-                    frames = [mrc.data[i] for i in range(mrc.data.shape[0])]
-                    overall_data = mrc.data
+            # Load .mrc movie; mode 0 (8-bit) is read unsigned unless the IMOD flag marks signed bytes
+            overall_data = read_mrc_data(mrc_file_path)
+            # Handle single vs multi-frame data
+            if len(overall_data.shape) == 2:
+                frames = [overall_data]
+            else:
+                frames = [overall_data[i] for i in range(overall_data.shape[0])]
 
             base_name = tif_name if tif_name is not None else Path(mrc_file_path).stem
 
@@ -147,8 +146,9 @@ class MRCConverter:
     @staticmethod
     def check_data_range(data: np.ndarray, pedestal: int, file_logger: logging.Logger) -> bool:
         """Check if data will fit within uint16 range."""
-        min_val = np.min(data) + pedestal
-        max_val = np.max(data) + pedestal
+        # Python ints: with NumPy 2 a uint8 minimum plus the pedestal would wrap in uint8
+        min_val = int(np.min(data)) + pedestal
+        max_val = int(np.max(data)) + pedestal
         
         if min_val < 0 or max_val > 65535:
             warning_msg = (

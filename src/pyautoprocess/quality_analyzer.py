@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .mrc_io import read_mrc_data
 from .tvips import TvipsReader
-import mrcfile
 import numpy as np
 import seremi
 from scipy.ndimage import gaussian_filter
@@ -50,8 +50,8 @@ class DiffractionQualityAnalyzer:
 
     def parse_mrc(self, mrc_file: str) -> Tuple[np.ndarray, bool]:
         """Parse MRC file using mrcfile library"""
-        with mrcfile.open(mrc_file, mode='r') as mrc:
-            data = mrc.data.copy()
+        # Mode 0 (8-bit) is read unsigned unless the IMOD flag marks signed bytes
+        data = read_mrc_data(mrc_file)
 
         is_multiframe = len(data.shape) == 3
 

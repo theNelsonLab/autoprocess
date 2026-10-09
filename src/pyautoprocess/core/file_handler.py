@@ -2,11 +2,11 @@
 File I/O operations for crystallography data processing
 """
 import numpy as np
-import mrcfile
 import seremi
 import tifffile
 from pathlib import Path
 from typing import Optional, Tuple
+from ..mrc_io import read_mrc_data
 from ..tvips import TvipsReader
 
 
@@ -27,8 +27,8 @@ class FileHandler:
         file_extension = file_path.suffix.lower()
 
         if file_extension == '.mrc':
-            with mrcfile.open(str(file_path), mode='r') as mrc:
-                data = mrc.data.copy()
+            # Mode 0 (8-bit) is read unsigned unless the IMOD flag marks signed bytes
+            data = read_mrc_data(file_path)
         elif file_extension == '.ser':
             with seremi.SERFile(str(file_path)) as ser:
                 frames = ser.read_all_frames()
@@ -343,7 +343,7 @@ class FileHandler:
             ]
         elif file_extension == '.mrc':
             expected_steps = [
-                "1. Read MRC file with mrcfile.open",
+                "1. Read MRC file with mrcfile.open (mode 0 as unsigned unless IMOD-flagged signed)",
                 "2. Cast to uint16",
                 "3. Cast to int32 and add pedestal +1",
                 "4. Cast back to uint16",
