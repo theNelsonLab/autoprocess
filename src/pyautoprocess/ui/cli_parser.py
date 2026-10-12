@@ -317,6 +317,7 @@ def parse_arguments(tool: str = 'autoprocess', include_args: Optional[Set[str]] 
     params['default_detector_distance'] = config.default_detector_distance
     params['default_exposure'] = config.default_exposure
     params['default_rotation'] = config.default_rotation
+    params['camera_length_map'] = config.camera_length_map
     params['microscope_config'] = get_arg_value('microscope_config', 'default')
     _config_file = get_arg_value('config_file', None)
     params['config_file'] = os.path.abspath(_config_file) if _config_file else None

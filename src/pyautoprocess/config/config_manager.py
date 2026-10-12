@@ -36,6 +36,11 @@ def _is_axis(value) -> bool:
     return len(parts) == 3 and all(_is_numeric_text(p) for p in parts)
 
 
+def _is_length_map(value) -> bool:
+    return (isinstance(value, dict) and bool(value)
+            and all(_is_numeric_text(k) and _is_number(v) for k, v in value.items()))
+
+
 SUPPORTED_EXTENSIONS = ('.mrc', '.ser', '.tvips')
 
 # The --config-file schema: field -> (required, check, description). Documented in the README
@@ -54,6 +59,9 @@ CONFIG_SCHEMA = {
     'value_range_min':  (False, _is_number, 'a number'),
     'value_range_max':  (False, _is_number, 'a number'),
     'detector_distance': (False, _is_numeric_text, 'a number or numeric string (mm)'),
+    'camera_length_map': (False, _is_length_map,
+                          'an object mapping nominal camera length to calibrated distance (mm), '
+                          'e.g. {"680": 1224}'),
     'rotation':         (False, _is_numeric_text, 'a number or numeric string (deg/s)'),
     'exposure':         (False, _is_numeric_text, 'a number or numeric string (s)'),
     'background_range_start': (False, _is_int, 'an integer (frame)'),

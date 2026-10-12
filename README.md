@@ -675,6 +675,24 @@ so it becomes (X, -Y, -Z). Negating only X (`0.8290 -0.5592 0`) still indexes, b
 wrong-handed near-solution with slightly distorted cells and lower ISa. Using the SMV geometry on
 raw `.tvips` frames can even "index" into a meaningless triclinic cell with ISa near 1.
 
+## Spectra data: nominal camera length
+
+`Spectra-CETA-mrc-SM` is for Ceta `.mrc` movies from the Spectra 300 (300 kV, 0.0197 Å). The
+REyes SerialEM scripts name Spectra movies with the **nominal** camera length shown on the
+microscope (`sample_680_0.5_1_...mrc`), but XDS needs the calibrated detector distance. The
+config's `camera_length_map` (`{"680": 1224}`) translates a filename value; a nominal length that
+is not in the map is used unchanged with a warning, and `--detector-distance` always wins.
+
+| setting | value | source |
+|---|---|---|
+| wavelength | 0.0197 Å | 300 kV |
+| detector distance at nominal 680 mm | 1224 mm | lab calibration; ss-jacobsen cells agree with Arctica data to about 1 % |
+| rotation axis | `-0.9950 0.1000 0` | XDS-refined axis of the indexed 2025-02-26 ss-jacobsen movies |
+| beam centre (X, Y) | 1030, 1010 | XDS-refined origin of the same movies |
+
+These come from one weak session (ISa about 2); recalibrate them on a strong standard before
+relying on absolute cell lengths.
+
 ## Custom microscope configurations
 
 `--config-file FILE` adds configurations to the built-in set. The file is a JSON object mapping each
@@ -719,6 +737,7 @@ A complete example with one new configuration:
 | `file_extension` | yes | `".mrc"`, `".ser"` or `".tvips"` |
 | `value_range_min`, `value_range_max` | no | number |
 | `detector_distance` (mm), `rotation` (deg/s), `exposure` (s) | no | number or numeric string; used when the filename does not supply the value |
+| `camera_length_map` | no | object mapping a nominal camera length in the filename to the calibrated detector distance (mm), e.g. `{"680": 1224}`; see "Spectra data" |
 | `background_range_start`, `background_range_end` | no | integer (frame) |
 | `microscope_config` | no | string; ignored, the key is the name |
 
@@ -773,6 +792,10 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **Unreleased**: Spectra-CETA-mrc-SM configuration
+  - New `Spectra-CETA-mrc-SM` config (300 kV) and optional `camera_length_map` config field,
+    which turns the nominal camera length in Spectra movie names (680) into the calibrated
+    detector distance (1224 mm). See "Spectra data: nominal camera length"
 - **v0.5.3**: 8-bit MRC movies are read as unsigned counts
   - **Data fix:** MRC mode 0 is now read as unsigned (0-255) unless the IMOD header flag marks the
     bytes as signed. DE Apollo movies are mode 0 with no IMOD stamp; until now every pixel above

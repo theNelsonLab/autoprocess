@@ -704,6 +704,12 @@ class CrystallographyProcessor:
         filename_rotation = split[2].replace("p", ".") if has_filename_fields else None
         filename_exposure = split[3].replace("p", ".") if has_filename_fields else None
 
+        # Some microscopes record the nominal camera length in the filename (Spectra: 680),
+        # not the calibrated detector distance XDS needs (1224). The config maps one to the
+        # other; a CLI --detector-distance is used as given.
+        if filename_distance and self.params.camera_length_map and not self.params.detector_distance:
+            filename_distance = self._calibrated_distance(filename, filename_distance)
+
         distance = (self.params.detector_distance
                     or filename_distance
                     or self.params.default_detector_distance)
@@ -725,6 +731,27 @@ class CrystallographyProcessor:
             return None
 
         return (sample_movie, distance, rotation, exposure)  # Return as a tuple
+
+    def _calibrated_distance(self, filename: str, nominal: str) -> str:
+        """Calibrated detector distance for a nominal camera length taken from a filename.
+
+        Keys are compared as numbers, so "680", "680.0" and 680 all match. A length missing
+        from the map is used unchanged, with a warning: it is probably uncalibrated.
+        """
+        for key, calibrated in self.params.camera_length_map.items():
+            if float(key) == float(nominal):
+                calibrated = f"{float(calibrated):g}"
+                self.log_print(
+                    f"{filename}: camera length {nominal} mm in the filename is nominal; "
+                    f"using calibrated detector distance {calibrated} mm from the "
+                    f"'{self.params.microscope_config}' config")
+                return calibrated
+        known = ", ".join(str(k) for k in self.params.camera_length_map)
+        self.log_print(
+            f"WARNING: {filename}: camera length {nominal} mm is not in the "
+            f"'{self.params.microscope_config}' camera_length_map (known: {known}); using it "
+            f"unchanged as the detector distance. Pass --detector-distance if it is uncalibrated.")
+        return nominal
 
     def calculate_resolution_ranges(self, distance: str,
                                     beam_center_x: Optional[int] = None,

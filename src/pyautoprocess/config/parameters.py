@@ -25,6 +25,9 @@ class ProcessingParameters:
     default_detector_distance: Optional[str] = None
     default_rotation: Optional[str] = None
     default_exposure: Optional[str] = None
+    # Nominal camera length as written in movie filenames (mm) -> calibrated detector distance
+    # (mm). Only a filename distance is translated; a --detector-distance override is not.
+    camera_length_map: Optional[dict] = None
     microscope_config: str = "default"
     # User JSON that extended or replaced the built-in microscope configs, if any.
     config_file: Optional[str] = None
