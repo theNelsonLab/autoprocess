@@ -792,7 +792,7 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
-- **Unreleased**: Spectra-CETA-mrc-SM configuration
+- **v0.5.4**: Spectra-CETA-mrc-SM configuration
   - New `Spectra-CETA-mrc-SM` config (300 kV) and optional `camera_length_map` config field,
     which turns the nominal camera length in Spectra movie names (680) into the calibrated
     detector distance (1224 mm). See "Spectra data: nominal camera length"
