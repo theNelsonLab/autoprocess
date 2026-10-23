@@ -25,6 +25,7 @@ from .core.process_tracker import ProcessTracker
 from .core import dataset_status
 from .core.filename_parser import looks_numeric
 from .core.rotation_axis import resolve_rotation_axis
+from .core.xscale_stats import format_log_block, parse_xscale_lp
 from .core.beam_center_detector import (
     BeamCenterDetector,
     select_all_probe_frames,
@@ -626,13 +627,58 @@ class CrystallographyProcessor:
     def _print_crystal_parameters(self, space_group: str, unit_cell: str) -> None:
         """Print crystal parameters to log.
 
+        Since 0.5.5 this is called after XSCALE, from _log_scaling_results, so that the
+        space group and cell sit directly above the XSCALE statistics.
+
         Args:
             space_group: Space group number
             unit_cell: Unit cell parameters string
         """
         self.log_print(f"\nI found space group {space_group} and a unit cell of")
         self.log_print(f"{unit_cell}")
-        self.log_print(f"\nProceeding with scaling")
+
+    @staticmethod
+    def _file_signature(path: str) -> Optional[Tuple[int, int]]:
+        """(mtime_ns, size) of a file, or None if it does not exist."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        return st.st_mtime_ns, st.st_size
+
+    def _log_scaling_results(self, space_group: Optional[str], unit_cell: Optional[str],
+                             unavailable: Optional[str] = None,
+                             xscale_lp_before: Optional[Tuple[int, int]] = None) -> None:
+        """Log the space group, unit cell and XSCALE total statistics as one block.
+
+        Printed after XSCALE has run. ``unavailable`` says why there are no statistics when
+        the caller already knows (XSCALE not run, or it raised); otherwise XSCALE.LP is read.
+        ``xscale_lp_before`` is XSCALE.LP's signature before XSCALE ran, so a file left over
+        from an earlier run is never reported as this run's result. Never raises: the
+        statistics are informational and must not fail processing.
+        """
+        try:
+            if space_group and unit_cell:
+                self._print_crystal_parameters(space_group, unit_cell)
+            lines = None
+            if unavailable is None:
+                stats = parse_xscale_lp("XSCALE.LP")
+                if (xscale_lp_before is not None
+                        and self._file_signature("XSCALE.LP") == xscale_lp_before):
+                    unavailable = "XSCALE.LP was not updated by this XSCALE run"
+                elif not stats.ok:
+                    unavailable = stats.error
+                else:
+                    lines = format_log_block(stats)
+            self.log_print("")
+            if lines is None:
+                self.log_print(f"XSCALE statistics are not available: {unavailable}")
+            else:
+                for line in lines:
+                    self.log_print(line)
+            self.log_print("")
+        except Exception as exc:  # never let the summary break a run
+            self.log_print(f"XSCALE statistics are not available: unexpected error ({exc})")
 
     def parse_filename(self, filename: str) -> Optional[Tuple[str, str, str, str]]:
         """Parse the input filename to extract parameters.
@@ -1461,8 +1507,10 @@ class CrystallographyProcessor:
 
             if space_group and unit_cell:
                 self._save_crystal_parameters(space_group, unit_cell)
-                self._print_crystal_parameters(space_group, unit_cell)
-                return self.scale_conv(sample_movie)
+                # The space group and cell are logged after XSCALE, directly above its
+                # statistics (see _log_scaling_results).
+                self.log_print("\nProceeding with scaling")
+                return self.scale_conv(sample_movie, space_group, unit_cell)
             else:
                 self.log_print(f"Space group or unit cell not found. Cannot finish autoprocess for {sample_movie}.")
                 return None
@@ -1526,44 +1574,61 @@ class CrystallographyProcessor:
 
         return " ".join(shell_strings)
 
-    def scale_conv(self, sample_movie: str) -> bool:
-        """Perform scaling and conversion."""
+    def scale_conv(self, sample_movie: str, space_group: Optional[str] = None,
+                   unit_cell: Optional[str] = None) -> bool:
+        """Perform scaling and conversion.
+
+        space_group / unit_cell (from XDS) are logged after XSCALE together with its
+        statistics; on every way out of the scaling step they are still logged.
+        """
         if not Path("CORRECT.LP").exists():
+            self._log_scaling_results(space_group, unit_cell,
+                                      unavailable="CORRECT.LP not found, so XSCALE was not run")
             return False
 
-        # Determine the resolution limit for XSCALE
-        # Priority: 1) --min-res argument, 2) resolution_range from XDS processing
-        if self.params.min_res is not None:
-            resolution_limit = self.params.min_res
-            self.log_print(f"Using manual minimum resolution for XSCALE: {resolution_limit} Å")
-        elif self.params.res_range is not None:
-            # If res_range was manually set, use it
-            resolution_limit = self.params.res_range
-            self.log_print(f"Using resolution range from --res-range for XSCALE: {resolution_limit} Å")
-        else:
-            # Try to read from XDS.INP
-            resolution_limit = self._read_resolution_from_xds_inp()
-            if resolution_limit is None:
-                self.log_print("Warning: Could not determine resolution limit, using default shells")
-                resolution_shells = "10 8 5 3 2.3 2.0 1.7 1.5 1.3 1.2 1.1 1.0 0.90 0.80 !0.75 !0.70 !0.65 !0.60"
+        try:
+            # Determine the resolution limit for XSCALE
+            # Priority: 1) --min-res argument, 2) resolution_range from XDS processing
+            if self.params.min_res is not None:
+                resolution_limit = self.params.min_res
+                self.log_print(f"Using manual minimum resolution for XSCALE: {resolution_limit} Å")
+            elif self.params.res_range is not None:
+                # If res_range was manually set, use it
+                resolution_limit = self.params.res_range
+                self.log_print(f"Using resolution range from --res-range for XSCALE: {resolution_limit} Å")
             else:
-                self.log_print(f"Using resolution from XDS.INP for XSCALE: {resolution_limit} Å")
+                # Try to read from XDS.INP
+                resolution_limit = self._read_resolution_from_xds_inp()
+                if resolution_limit is None:
+                    self.log_print("Warning: Could not determine resolution limit, using default shells")
+                    resolution_shells = "10 8 5 3 2.3 2.0 1.7 1.5 1.3 1.2 1.1 1.0 0.90 0.80 !0.75 !0.70 !0.65 !0.60"
+                else:
+                    self.log_print(f"Using resolution from XDS.INP for XSCALE: {resolution_limit} Å")
 
-        # Generate commented resolution shells if we have a valid limit
-        if resolution_limit is not None:
-            resolution_shells = self._get_commented_resolution_shells(resolution_limit)
+            # Generate commented resolution shells if we have a valid limit
+            if resolution_limit is not None:
+                resolution_shells = self._get_commented_resolution_shells(resolution_limit)
 
-        # XSCALE processing
-        xscale_content = f"""OUTPUT_FILE= {sample_movie}.ahkl
+            # XSCALE processing
+            xscale_content = f"""OUTPUT_FILE= {sample_movie}.ahkl
 INPUT_FILE= XDS_ASCII.HKL
 RESOLUTION_SHELLS= {resolution_shells}
 """
-        with open('XSCALE.INP', 'w') as xscale:
-            xscale.write(xscale_content)
+            with open('XSCALE.INP', 'w') as xscale:
+                xscale.write(xscale_content)
 
-        with open("xscale_ap.LP", "w+") as xscale_out:
-            run("xscale", stdout=xscale_out)
+            xscale_lp_before = self._file_signature("XSCALE.LP")
+            with open("xscale_ap.LP", "w+") as xscale_out:
+                run("xscale", stdout=xscale_out)
+        except BaseException as exc:
+            # BaseException so that SG/cell reach the log even when the run is interrupted
+            # (Ctrl-C, SystemExit) during XSCALE; the exception is re-raised unchanged.
+            detail = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+            self._log_scaling_results(space_group, unit_cell,
+                                      unavailable=f"XSCALE did not run ({detail})")
+            raise
         self.log_print("I scaled the data in XSCALE.")
+        self._log_scaling_results(space_group, unit_cell, xscale_lp_before=xscale_lp_before)
 
         # XDSCONV processing
         xdsconv_content = f"""INPUT_FILE= {sample_movie}.ahkl

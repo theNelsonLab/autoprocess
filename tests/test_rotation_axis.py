@@ -3,8 +3,8 @@ Tests for tilt-direction parsing and rotation-axis resolution (--auto-rotation-a
 
 None of these touch XDS, a microscope, or the filesystem.
 
-The token forms exercised here are taken from real filenames on the lab's HPC storage
-(/resnick/groups/NelsonLab/data/DBE/...), not invented: `P50toN-50` dominates, the token sits
+The token forms exercised here are taken from real filenames in the lab's movie archive,
+not invented: `P50toN-50` dominates, the token sits
 at underscore field 4 or 5, the minus inside `N-50` is redundant, and `p`/`n` appear in both
 cases.
 """
@@ -220,9 +220,8 @@ def test_resolved_axis_reaches_xds_inp_without_leaking_between_datasets():
 
 # ------------------------------------------------------- the real corpus (regression fixture)
 
-# Every distinct tilt-token form found across 199,606 unique movie basenames under
-# /resnick/groups/NelsonLab/data/DBE/{Arctica,Talos,Apollo,F30,Spectra}_data and
-# AutoProcess_paper_data, harvested 2026-09-01. 880 files carry a token; 43 distinct forms;
+# Every distinct tilt-token form found across 199,606 unique movie basenames in the lab's
+# movie archive (Arctica, Talos, Apollo, F30 and Spectra data), harvested 2026-09-01. 880 files carry a token; 43 distinct forms;
 # all sit at underscore field 4 or 5. Format: (token, field_index, file_count, expected).
 #
 # These are the actual strings the parser must survive -- not invented examples. If a future

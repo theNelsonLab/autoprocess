@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyautoprocess"
-version = "0.5.4"
+version = "0.5.5"
 authors = [
   { name="Dmitry Eremin", email="eremin@caltech.edu" },
   { name="Jessica Burch", email="hosea@caltech.edu" },
@@ -40,6 +40,7 @@ ser2tif = "pyautoprocess.ser2tif:main"
 tvips2tif = "pyautoprocess.tvips2tif:main"
 image_process = "pyautoprocess.image_process:main"
 monitorED = "pyautoprocess.monitor_ed:main"
+autoprocess-summary = "pyautoprocess.summary:main"
 
 [project.urls]
 Homepage = "https://github.com/theNelsonLab/autoprocess"

@@ -11,6 +11,7 @@ This package provides a comprehensive suite of tools for automated MicroED data 
 - **mrc2tif**: Utility for converting MRC files to TIF format
 - **ser2tif**: Utility for converting SER files to TIF format
 - **tvips2tif**: Utility for converting TVIPS files to TIF format
+- **autoprocess-summary**: Collects the XSCALE statistics of every processed dataset into one file
 
 ## Installation
 
@@ -24,6 +25,7 @@ Or install from source:
 git clone https://github.com/theNelsonLab/autoprocess.git
 cd autoprocess
 pip install .
+```
 
 ## Requirements
 
@@ -440,6 +442,59 @@ Examples:
   tvips2tif --recursive --raw --folder /microscopy/data
 ```
 
+### 8. autoprocess-summary
+
+#### Description
+Collects the XSCALE statistics of every processed dataset under a directory into one text file,
+`Summary_Results.txt`. A dataset is a folder holding `auto_process/XSCALE.LP`, as written by
+`autoprocess`.
+
+#### Key Features
+- **Quick-glance table**: one line per dataset with space group, unit cell, highest resolution
+  shell, and the completeness, R-meas, I/sigma and CC(1/2) of the `total` row
+- **Full tables**: the complete XSCALE statistics table of each dataset follows, between fences,
+  so tables of different lengths never run into each other
+- **Failures stay visible**: folders that have `auto_process/` but no `XSCALE.LP` are listed as
+  not scaled
+- **Recursive search**: looks up to `--depth` folder levels below `--dir` (default 4), which
+  covers a whole REyes session (`movies/<movie folder>/<dataset>/auto_process/`). Hidden folders
+  and `processing_backups/` are skipped; folders that cannot be read are skipped and listed on
+  the console. Linked folders are followed, and a dataset reached twice is listed once
+- **What counts as a dataset**: only `<dataset>/auto_process/XSCALE.LP`. XSCALE runs elsewhere,
+  such as `auto_process_direct/` or merged data in `merge_*/` folders, are not included
+- **Safe output**: the file is written in one step (a temporary file renamed into place), so an
+  error never leaves a half-written summary. `--out` may also name a folder, in which case
+  `Summary_Results.txt` is written there
+- **Stable order**: datasets are sorted naturally by name (`mov2` before `mov10`); a name that
+  occurs more than once is shown with as much of its path as tells the copies apart, and every
+  dataset's block gives its folder relative to `--dir`
+- Reads the same XSCALE.LP table as the statistics block in `autoprocess.log` (see
+  "Scaling statistics in autoprocess.log")
+
+#### Usage
+```bash
+autoprocess-summary [options]
+
+Options:
+  --dir PATH     Directory to search (default: current directory)
+  --out PATH     Output file (default: Summary_Results.txt in the search directory)
+  --depth N      How many folder levels below --dir a dataset folder may sit (default: 4)
+
+Examples:
+  # Summarise the folder you are in; writes Summary_Results.txt there
+  cd /data/session/grid-3
+  autoprocess-summary
+
+  # A whole REyes session
+  autoprocess-summary --dir /data/session
+
+  # Write somewhere else, searching deeper
+  autoprocess-summary --dir /data/session --out /data/reports/session_summary.txt --depth 6
+```
+
+Exit status: 0 if at least one dataset with `XSCALE.LP` was found, 1 otherwise (nothing is
+written then).
+
 ## Experimental Features
 
 Both features below are **opt-in and off by default**, and both fall back to the microscope
@@ -658,6 +713,45 @@ A record only counts for the exact source file it names, so a same-named dataset
 is unaffected. Successful datasets are also listed in `autoprocess_logs/autoprocess_tracking.log`,
 as before; failures are never written there.
 
+## Scaling statistics in autoprocess.log
+
+After XSCALE has run, `autoprocess.log` shows the space group and unit cell followed by the
+overall statistics from `XSCALE.LP`:
+
+```
+I scaled the data in XSCALE.
+
+I found space group 16 and a unit cell of
+3.72 3.96 13.88 90.000 90.000 90.000
+
+At 0.80 Å total statistics are:
+Observed reflections: 800
+Unique reflections: 209
+Possible: 288
+Completeness: 72.6%
+R-factor: 20.2%
+R-meas: 23.1%
+I/sigma: 4.43
+CC1/2: 95.1%
+```
+
+- The numbers are the `total` row of the table "SUBSET OF INTENSITY DATA WITH SIGNAL/NOISE >= -3.0
+  AS FUNCTION OF RESOLUTION" (the last such table, if there are several). R-factor is the observed
+  R-factor; CC1/2 is shown without XSCALE's significance mark `*`.
+- The resolution is the limit of the last shell XSCALE reported, which can differ from the limit
+  it was given (0.80 for a 0.78 Å limit, with the default shells). It is the last shell in the
+  table, not the last one with data: when the limit lies beyond the diffraction, that shell can
+  hold few or no reflections, so check the table in `XSCALE.LP` (or `autoprocess-summary`) before
+  quoting it as the resolution of the data.
+- Values are printed as XSCALE gives them, including `-99.9%`; a column missing from the row is
+  shown as `n/a`.
+- Up to 0.5.4 the space group and cell were printed before scaling, above
+  "Proceeding with scaling"; they now come directly above the statistics. "Proceeding with
+  scaling" itself has not moved, and `stats.LP` is unchanged.
+- If there are no statistics (XSCALE failed, did not run, or its table cannot be read), the space
+  group and cell are still printed, followed by one line
+  `XSCALE statistics are not available: <reason>`. This never changes the outcome of a run.
+
 ## F30 TVIPS data: two configurations
 
 TVIPS movies are converted to TIF exactly as recorded, with no flip or rotation. The lab's
@@ -792,6 +886,17 @@ This project is licensed under the GPL-3.0-or-later License.
 - CCP4 Software Suite for crystallographic tools
 
 ## Version History
+- **v0.5.5**: XSCALE statistics in the log, and `autoprocess-summary`
+  - `autoprocess.log` now shows the XSCALE total statistics (observed, unique and possible
+    reflections, completeness, R-factor, R-meas, I/sigma, CC1/2) at the resolution of the last
+    shell, directly below the space group and unit cell, which now follow "I scaled the data in
+    XSCALE." instead of preceding "Proceeding with scaling". See "Scaling statistics in
+    autoprocess.log"
+  - New `autoprocess-summary` command: one file with the XSCALE statistics of every dataset under
+    a directory
+  - `--beam-center` (experimental, off by default): the RANSAC seed of the halo-circle fallback is
+    now a named constant with a different value, so a detected centre can differ in rare cases
+    where that fallback decides the result
 - **v0.5.4**: Spectra-CETA-mrc-SM configuration
   - New `Spectra-CETA-mrc-SM` config (300 kV) and optional `camera_length_map` config field,
     which turns the nominal camera length in Spectra movie names (680) into the calibrated

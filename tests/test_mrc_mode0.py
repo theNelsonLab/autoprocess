@@ -3,7 +3,7 @@ MRC mode 0 (8-bit) must be read as UNSIGNED counts unless the IMOD flag says the
 
 DE Apollo movies are mode 0 without an IMOD stamp and hold counts 0-255. mrcfile returns them as
 int8, and the TIF conversion (pedestal +1, clip at 0) used to turn every pixel above 127 into 0 --
-e.g. Kunal-20261002 sample-H mov4 frame 1: 14 pixels above 127 (max 255) in the MRC, TIF max 121.
+e.g. one frame of a real movie had 14 pixels above 127 (max 255) in the MRC and TIF max 121.
 """
 import logging
 import struct
@@ -170,8 +170,8 @@ def test_quality_analyzer_reads_unsigned(tmp_path):
     np.testing.assert_array_equal(data, counts.astype(np.float64))
 
 
-def test_sample_h_mov4_regression(tmp_path):
-    """Synthetic stand-in for Kunal-20261002 sample-H mov4 frame 1: 14 pixels above 127, max 255.
+def test_bright_pixel_frame_regression(tmp_path):
+    """Synthetic stand-in for a real movie frame: 14 pixels above 127, max 255.
 
     The old conversion produced a TIF whose maximum was 121 with all 14 of those pixels at 0.
     """
@@ -179,15 +179,15 @@ def test_sample_h_mov4_regression(tmp_path):
     frame = rng.integers(0, 121, size=(64, 64)).astype(np.uint8)
     hot = rng.choice(64 * 64, size=14, replace=False)
     frame.flat[hot] = np.linspace(128, 255, 14).astype(np.uint8)
-    path = write_mrc(tmp_path / 'sample-H-mov4_560_4_0.25_P50toN-50_g8sp8_c.mrc',
+    path = write_mrc(tmp_path / 'sample-mov4_560_4_0.25_P50toN-50_g8sp8_c.mrc',
                      np.stack([frame, frame]).view(np.int8))
     handler = file_handler(tmp_path)
     data, multiframe = handler.read_source_file_from_path(path)
-    images = tmp_path / 'sample-H-mov4' / 'images'
+    images = tmp_path / 'sample-mov4' / 'images'
     images.mkdir(parents=True)
-    assert handler.convert_data_to_tif(data, multiframe, str(tmp_path / 'sample-H-mov4'),
+    assert handler.convert_data_to_tif(data, multiframe, str(tmp_path / 'sample-mov4'),
                                        path.name, images_dir=images)
-    tif = tifffile.imread(str(images / 'sample-H-mov4_001.tif'))
+    tif = tifffile.imread(str(images / 'sample-mov4_001.tif'))
     assert tif.max() == 256
     assert int((tif > 128).sum()) == 14
     assert not (tif.flat[hot] == 0).any()

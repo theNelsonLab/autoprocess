@@ -2,10 +2,12 @@
 # VENDORED MODULE -- DO NOT REFACTOR
 #
 # Source     : beam_center_kit/python/beam_center.py  (the lab's "beam_center_kit")
-# Upstream   : /Users/eremin/Library/CloudStorage/Dropbox/Caltech/Scripts/
-#              autoprocess/beam_center_kit/python/beam_center.py
 # Vendored   : 2026-09-01
-# Copied     : verbatim, except for this provenance header.
+# Copied     : verbatim, except for this provenance header and the local changes below.
+#
+# Local changes (pyautoprocess 0.5.5): ALGORITHM_VERSION is now
+# "autoprocess-beam-center/v1" (it is defined only, never written or read); the RANSAC
+# seed of the halo-circle fit is now the named constant _RANSAC_SEED = 12345.
 #
 # Local modification IS permitted -- this is a vendored copy, not a submodule.
 # If you change it, note the change here so the next person can diff against
@@ -38,7 +40,10 @@ from scipy import ndimage, optimize
 from skimage import measure, morphology, registration, transform
 
 
-ALGORITHM_VERSION = "diffractdb-beam-center/v1"
+ALGORITHM_VERSION = "autoprocess-beam-center/v1"
+
+# Fixed RANSAC seed, so the halo-circle fit gives the same answer on every run.
+_RANSAC_SEED = 12345
 
 
 class BeamCenterEstimationError(RuntimeError):
@@ -229,7 +234,7 @@ def _isophote_candidate(prepared: _PreparedImage) -> CenterCandidate | None:
                     min_samples=3,
                     residual_threshold=1.5,
                     max_trials=300,
-                    rng=20260831,
+                    rng=_RANSAC_SEED,
                 )
         except (TypeError, ValueError):
             continue

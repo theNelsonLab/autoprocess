@@ -9,18 +9,17 @@ SMV rows the same way, so the two inputs differ by a pure left-right mirror of t
 A rotation axis is an axial vector, so under the mirror x -> -x it becomes (vx, -vy, -vz),
 not (-vx, vy, vz): a reflection also reverses the sense of rotation. The polar-vector version
 ("0.8290 -0.5592 0") still indexes, but as a wrong-handed near-solution with distorted cells
-and ISa near 1 before refinement; see the 2026-09-17 HPC notes.
+and ISa near 1 before refinement.
 
   F30-TVIPS-SM      raw .tvips -> TIF (autoprocess)          axis "-0.8290 0.5592 0",  ORGX 1028
   F30-TVIPS-SMV-SM  historical .img   (image_process --smv)  axis "-0.8290 -0.5592 0", ORGX 1020
 
-Verified on HPC: from .tvips with F30-TVIPS-SM, schwartz-mov57 and Nidppf-mov5 give the same
+Verified on recorded TVIPS movies: from .tvips with F30-TVIPS-SM, two datasets give the same
 cells as their SMV runs (7.16 9.33 13.60; 10.01 14.64 19.77) with matching ISa and Rmeas.
 """
 import struct
 
 import numpy as np
-import pytest
 import tifffile
 
 from pyautoprocess.config.config_manager import ConfigLoader
