@@ -5,6 +5,7 @@ import argparse
 import warnings
 from .tvips import TvipsReader
 from pathlib import Path
+from pyautoprocess.tif_convert import convert_frame
 
 class TVIPSConverter:
     @staticmethod
@@ -89,9 +90,8 @@ class TVIPSConverter:
                 if raw_conversion:
                     output_data = frame_data
                 else:
-                    # Apply pedestal and ensure non-negative values
-                    output_data = np.maximum(frame_data + pedestal, 0)
-                    output_data = output_data.astype(np.uint16)
+                    # Add pedestal, clip to 0..65535, cast to uint16
+                    output_data, _ = convert_frame(frame_data, pedestal)
                     if not TVIPSConverter.check_data_range(frame_data, pedestal, file_logger):
                         all_frames_verified = False
 
@@ -182,7 +182,7 @@ class TVIPSConverter:
                 compare_tif = tif_data
             else:
                 # Apply the same transformation as during conversion
-                compare_original = np.maximum(original_data + pedestal, 0).astype(np.uint16)
+                compare_original, _ = convert_frame(original_data, pedestal)
                 compare_tif = tif_data
 
             # Log detailed comparison info
