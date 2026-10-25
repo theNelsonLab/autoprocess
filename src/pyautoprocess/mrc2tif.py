@@ -6,6 +6,7 @@ import warnings
 from pathlib import Path
 
 from pyautoprocess.mrc_io import read_mrc_data
+from pyautoprocess.tif_convert import convert_frame
 
 class MRCConverter:
     @staticmethod
@@ -93,9 +94,8 @@ class MRCConverter:
                 else:
                     if not MRCConverter.check_data_range(frame_data, pedestal, file_logger):
                         all_frames_verified = False
-                    output_data = frame_data.astype(np.int32) + pedestal
-                    output_data = np.clip(output_data, 0, 65535)
-                    output_data = output_data.astype(np.uint16)
+                    # Round floats, add pedestal, clip to 0..65535, cast to uint16
+                    output_data, _ = convert_frame(frame_data, pedestal)
 
                 MRCConverter.log_to_file(
                     f"Frame {idx+1} pre-save details:\n"
@@ -186,9 +186,7 @@ class MRCConverter:
                 compare_original = original_data
                 compare_tif = tif_data
             else:
-                compare_original = original_data.astype(np.int32) + pedestal
-                compare_original = np.clip(compare_original, 0, 65535)
-                compare_original = compare_original.astype(np.uint16)
+                compare_original, _ = convert_frame(original_data, pedestal)
                 compare_tif = tif_data
 
             # Log detailed comparison info

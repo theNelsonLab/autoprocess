@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 from ..mrc_io import read_mrc_data
 from ..tvips import TvipsReader
+from ..tif_convert import UINT16_MAX, convert_frame, pedestal_for
 
 
 class FileHandler:
@@ -21,6 +22,20 @@ class FileHandler:
     def _default_log_print(self, message: str) -> None:
         """Default logging function"""
         print(message)
+
+    @staticmethod
+    def _transformation_desc(file_extension: str) -> str:
+        if file_extension == '.ser':
+            return "SER: vertical flip + pedestal +200 + clip 0..65535"
+        return f"{file_extension.lstrip('.').upper()}: round floats + pedestal +1 + clip 0..65535"
+
+    def _report_clipped(self, filename: str, n_pixels: int, n_frames: int) -> None:
+        """Say when pixels hit the uint16 ceiling. XDS integrates them at 65535 without flagging
+        them: it flags only values above OVERLOAD (65535)."""
+        if n_pixels:
+            self.log_print(f"WARNING: {n_pixels} pixel(s) in {n_frames} frame(s) of {filename} exceeded "
+                           f"{UINT16_MAX} after the pedestal and were clipped to {UINT16_MAX} "
+                           f"(saturated: their true values are higher)")
 
     def read_source_file_from_path(self, file_path: Path) -> Tuple[np.ndarray, bool]:
         """Read source file (MRC, SER, TVIPS) from specific path and return data and multiframe status"""
@@ -101,6 +116,8 @@ class FileHandler:
                         'file_sizes': []
                     }
 
+                clipped_pixels = 0
+                clipped_frames = 0
                 for frame_idx in frames_to_process:
                     original_frame_data = data[frame_idx]  # Keep original for verification
                     frame_data = original_frame_data.copy()
@@ -118,13 +135,11 @@ class FileHandler:
                     if file_extension == '.ser':
                         frame_data = frame_data[::-1]  # SER files need flip to match v0.1.1
 
-                    # Apply file-specific processing following v0.1.1 exact workflow
-                    if file_extension == '.ser':
-                        # Apply pedestal and ensure non-negative values (matching ser2tif.py behavior)
-                        output_data = np.maximum(frame_data + 200, 0).astype(np.uint16)
-                    else:
-                        # MRC files: add pedestal +1, clip negatives to 0, cast to uint16
-                        output_data = np.maximum(frame_data.astype(np.int32) + 1, 0).astype(np.uint16)
+                    # Round floats, add the pedestal, clip to 0..65535, cast to uint16
+                    output_data, n_high = convert_frame(frame_data, pedestal_for(file_extension))
+                    if n_high:
+                        clipped_pixels += n_high
+                        clipped_frames += 1
 
                     # Validate output data before writing (always check for critical errors)
                     if output_data.size == 0:
@@ -153,6 +168,8 @@ class FileHandler:
                         all_frames_verified = False
                         if self.params.verbose:
                             conversion_stats['failed_frames'] += 1
+
+                self._report_clipped(filename, clipped_pixels, clipped_frames)
 
                 # Verbose conversion summary only
                 if self.params.verbose:
@@ -188,15 +205,10 @@ class FileHandler:
                 if file_extension == '.ser':
                     frame_data = frame_data[::-1]  # SER files need flip to match v0.1.1
 
-                # Apply file-specific processing following v0.1.1 exact workflow
-                if file_extension == '.ser':
-                    # Apply pedestal and ensure non-negative values (matching ser2tif.py behavior)
-                    output_data = np.maximum(frame_data + 200, 0).astype(np.uint16)
-                    transformation_desc = "SER: vertical flip + pedestal +200 + clipping"
-                else:
-                    # MRC files/TVIPS files: add pedestal +1, clip negatives to 0, cast to uint16
-                    output_data = np.maximum(frame_data.astype(np.int32) + 1, 0).astype(np.uint16)
-                    transformation_desc = "MRC: pedestal +1 + clipping"
+                # Round floats, add the pedestal, clip to 0..65535, cast to uint16
+                output_data, n_high = convert_frame(frame_data, pedestal_for(file_extension))
+                transformation_desc = self._transformation_desc(file_extension)
+                self._report_clipped(filename, n_high, 1 if n_high else 0)
 
                 # Validate output data
                 if output_data.size == 0:
@@ -253,15 +265,9 @@ class FileHandler:
                 return False
 
             # Apply the same transformation that was used during conversion
-            if file_extension == '.ser':
-                # SER processing: vertical flip + pedestal +200 with clipping
-                expected_data = original_data[::-1]  # Apply flip first
-                expected_data = np.maximum(expected_data + 200, 0).astype(np.uint16)
-                transformation_desc = "SER: vertical flip + pedestal +200 + clipping"
-            else:
-                # MRC/TVIPS processing: add pedestal +1, clip negatives to 0, cast to uint16
-                expected_data = np.maximum(original_data.astype(np.int32) + 1, 0).astype(np.uint16)
-                transformation_desc = "MRC: pedestal +1 + clipping"
+            expected_data = original_data[::-1] if file_extension == '.ser' else original_data
+            expected_data, _ = convert_frame(expected_data, pedestal_for(file_extension))
+            transformation_desc = self._transformation_desc(file_extension)
 
             # Validate shapes match
             if expected_data.shape != saved_tif.shape:
@@ -336,7 +342,7 @@ class FileHandler:
             expected_steps = [
                 "1. Read SER file with seremi.SERFile",
                 "2. Apply vertical flip (frame_data[::-1])",
-                "3. Add pedestal +200 with clipping (np.maximum(data + 200, 0))",
+                "3. Add pedestal +200, clip to 0..65535",
                 "4. Cast to uint16",
                 "5. Write with tifffile.imwrite",
                 "6. Verify by reading back and comparing"
@@ -344,9 +350,9 @@ class FileHandler:
         elif file_extension == '.mrc':
             expected_steps = [
                 "1. Read MRC file with mrcfile.open (mode 0 as unsigned unless IMOD-flagged signed)",
-                "2. Cast to uint16",
-                "3. Cast to int32 and add pedestal +1",
-                "4. Cast back to uint16",
+                "2. Round float data to the nearest integer (integer data unchanged)",
+                "3. Add pedestal +1, clip to 0..65535",
+                "4. Cast to uint16",
                 "5. Write with tifffile.imwrite",
                 "6. Verify by reading back and comparing"
             ]
