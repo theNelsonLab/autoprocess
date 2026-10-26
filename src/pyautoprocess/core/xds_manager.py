@@ -4,6 +4,9 @@ XDS processing operations for crystallography data
 from pathlib import Path
 from typing import Tuple
 
+# Clipped/saturated pixels are written as 65535, so XDS flags reflections containing them as overloaded.
+XDS_OVERLOAD = 65534
+
 
 class XDSManager:
     """Handles XDS processing operations for crystallography data"""
@@ -60,7 +63,7 @@ INCLUDE_RESOLUTION_RANGE= 40 {params['resolution_range']}
 TEST_RESOLUTION_RANGE= 40 {params['test_resolution_range']}
 TRUSTED_REGION=0.0 1.2
 VALUE_RANGE_FOR_TRUSTED_DETECTOR_PIXELS={self.params.value_range_min} {self.params.value_range_max}
-DETECTOR= ADSC MINIMUM_VALID_PIXEL_VALUE= 1 OVERLOAD= 65535
+DETECTOR= ADSC MINIMUM_VALID_PIXEL_VALUE= 1 OVERLOAD= {XDS_OVERLOAD}
 SENSOR_THICKNESS= 0.01
 NX= {self.params.frame_size} NY= {self.params.frame_size} QX= {self.params.pixel_size} QY= {self.params.pixel_size}
 ROTATION_AXIS={rotation_axis}

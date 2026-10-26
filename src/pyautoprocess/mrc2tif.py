@@ -6,7 +6,7 @@ import warnings
 from pathlib import Path
 
 from pyautoprocess.mrc_io import read_mrc_data
-from pyautoprocess.tif_convert import convert_frame
+from pyautoprocess.tif_convert import convert_frame, range_after_pedestal
 
 class MRCConverter:
     @staticmethod
@@ -146,9 +146,8 @@ class MRCConverter:
     @staticmethod
     def check_data_range(data: np.ndarray, pedestal: int, file_logger: logging.Logger) -> bool:
         """Check if data will fit within uint16 range."""
-        # Python ints: with NumPy 2 a uint8 minimum plus the pedestal would wrap in uint8
-        min_val = int(np.min(data)) + pedestal
-        max_val = int(np.max(data)) + pedestal
+        # Python numbers: with NumPy 2 a uint8 minimum plus the pedestal would wrap in uint8
+        min_val, max_val = range_after_pedestal(data, pedestal)
         
         if min_val < 0 or max_val > 65535:
             warning_msg = (

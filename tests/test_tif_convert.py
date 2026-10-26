@@ -197,3 +197,89 @@ def test_mrc2tif_cli_uses_the_same_rule(tmp_path):
         MRCConverter.convert_mrc_to_tif(str(path), 1, None, False, logger, logger)
     tif = tifffile.imread(str(tmp_path / 'images' / 'c_001.tif'))
     np.testing.assert_array_equal(tif, [[2, 3, 65535]])
+
+
+# --- NaN / inf in float data ----------------------------------------------------------------
+
+def test_nan_becomes_zero_and_is_counted():
+    import warnings
+    from pyautoprocess.tif_convert import convert_frame_counts
+    frame = np.array([np.nan, np.inf, -np.inf, 1e30, -1e30, 0.4, np.nan], np.float32)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")          # no 'invalid value encountered in cast'
+        out, n_high, n_nan = convert_frame_counts(frame, 1)
+    np.testing.assert_array_equal(out, [0, 65535, 0, 65535, 0, 1, 0])
+    assert (n_high, n_nan) == (2, 2)
+    assert convert_frame(frame, 1)[1] == 2      # the 2-tuple API is unchanged
+
+
+def test_integer_frames_never_report_nan():
+    from pyautoprocess.tif_convert import convert_frame_counts
+    assert convert_frame_counts(np.array([0, 65535], np.uint16), 1).n_nan == 0
+
+
+def test_mrc_float_with_nan_warns(tmp_path):
+    raw = np.array([[[np.nan, 5.0, 70000.0]], [[np.nan, np.nan, 1.0]]], dtype=np.float32)
+    ok, tifs, messages = run_file_handler(tmp_path, write_mrc(tmp_path / 'n.mrc', raw), 'n')
+    assert ok
+    np.testing.assert_array_equal(tifs[0], [[0, 6, 65535]])
+    np.testing.assert_array_equal(tifs[1], [[0, 0, 2]])
+    nan_lines = [m for m in messages if 'NaN' in m]
+    assert nan_lines == [
+        "WARNING: 3 NaN pixel(s) in 2 frame(s) of n.mrc were set to 0 (invalid for XDS)"]
+    assert any('1 pixel(s) in 1 frame(s)' in m and 'clipped to 65535' in m for m in messages)
+
+
+# --- the standalone tools' range warning (NumPy 2 scalar arithmetic) ------------------------
+
+@pytest.mark.parametrize("module, cls, pedestal", [
+    ("tvips2tif", "TVIPSConverter", 1),
+    ("ser2tif", "SERConverter", 200),
+    ("mrc2tif", "MRCConverter", 1),
+])
+def test_range_warning_fires_at_the_uint16_ceiling(module, cls, pedestal):
+    import importlib
+    import warnings
+    converter = getattr(importlib.import_module(f"pyautoprocess.{module}"), cls)
+    logger = logging.getLogger("test-range")
+    data = np.array([0, 65535], np.uint16)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert converter.check_data_range(data, pedestal, logger) is False
+    messages = [str(w.message) for w in caught]
+    assert any("Data range (" in m and f"{65535 + pedestal})" in m for m in messages)
+    assert not any("overflow" in m for m in messages)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert converter.check_data_range(np.array([0, 65535 - pedestal], np.uint16),
+                                          pedestal, logger) is True
+
+
+def test_range_after_pedestal_is_nan_safe():
+    from pyautoprocess.tif_convert import range_after_pedestal
+    assert range_after_pedestal(np.array([65535], np.uint16), 1) == (65536, 65536)
+    assert range_after_pedestal(np.array([np.nan, 2.0, np.inf], np.float32), 1) == (3.0, float('inf'))
+    lo, hi = range_after_pedestal(np.array([np.nan], np.float32), 1)
+    assert np.isnan(lo) and np.isnan(hi)
+
+
+# --- XDS OVERLOAD ---------------------------------------------------------------------------
+
+def _all_config_names():
+    from pyautoprocess.config.config_manager import list_microscope_configs
+    return list_microscope_configs()
+
+
+@pytest.mark.parametrize("config_name", _all_config_names())
+def test_xds_inp_overload_is_65534_for_every_config(config_name):
+    """Pixels are clipped to 65535; OVERLOAD must be below that so XDS rejects them."""
+    from pyautoprocess.config.config_manager import ConfigLoader
+    from pyautoprocess.core.xds_manager import XDS_OVERLOAD, XDSManager
+    params = ConfigLoader().get_config(config_name)
+    text = XDSManager(params).create_xds_input('../images/sample', dict(
+        distance='960', rotation='0.3', exposure='3', resolution_range=0.8,
+        test_resolution_range=1.0, image_number='100',
+        background_pixel=4, signal_pixel=7, min_pixel=7))
+    detector = [line for line in text.splitlines() if 'OVERLOAD=' in line]
+    assert detector == ['DETECTOR= ADSC MINIMUM_VALID_PIXEL_VALUE= 1 OVERLOAD= 65534']
+    assert XDS_OVERLOAD == 65534 < 65535

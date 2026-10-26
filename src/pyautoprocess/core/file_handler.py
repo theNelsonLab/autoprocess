@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 from ..mrc_io import read_mrc_data
 from ..tvips import TvipsReader
-from ..tif_convert import UINT16_MAX, convert_frame, pedestal_for
+from ..tif_convert import UINT16_MAX, convert_frame, convert_frame_counts, pedestal_for
 
 
 class FileHandler:
@@ -29,13 +29,18 @@ class FileHandler:
             return "SER: vertical flip + pedestal +200 + clip 0..65535"
         return f"{file_extension.lstrip('.').upper()}: round floats + pedestal +1 + clip 0..65535"
 
-    def _report_clipped(self, filename: str, n_pixels: int, n_frames: int) -> None:
-        """Say when pixels hit the uint16 ceiling. XDS integrates them at 65535 without flagging
-        them: it flags only values above OVERLOAD (65535)."""
+    def _report_clipped(self, filename: str, n_pixels: int, n_frames: int,
+                        n_nan: int = 0, n_nan_frames: int = 0) -> None:
+        """Say when pixels hit the uint16 ceiling. With OVERLOAD= 65534 in XDS.INP, XDS flags the
+        reflections containing them as overloaded and rejects them. Also say when NaN pixels were
+        set to 0."""
         if n_pixels:
             self.log_print(f"WARNING: {n_pixels} pixel(s) in {n_frames} frame(s) of {filename} exceeded "
                            f"{UINT16_MAX} after the pedestal and were clipped to {UINT16_MAX} "
                            f"(saturated: their true values are higher)")
+        if n_nan:
+            self.log_print(f"WARNING: {n_nan} NaN pixel(s) in {n_nan_frames} frame(s) of {filename} "
+                           f"were set to 0 (invalid for XDS)")
 
     def read_source_file_from_path(self, file_path: Path) -> Tuple[np.ndarray, bool]:
         """Read source file (MRC, SER, TVIPS) from specific path and return data and multiframe status"""
@@ -118,6 +123,8 @@ class FileHandler:
 
                 clipped_pixels = 0
                 clipped_frames = 0
+                nan_pixels = 0
+                nan_frames = 0
                 for frame_idx in frames_to_process:
                     original_frame_data = data[frame_idx]  # Keep original for verification
                     frame_data = original_frame_data.copy()
@@ -136,10 +143,13 @@ class FileHandler:
                         frame_data = frame_data[::-1]  # SER files need flip to match v0.1.1
 
                     # Round floats, add the pedestal, clip to 0..65535, cast to uint16
-                    output_data, n_high = convert_frame(frame_data, pedestal_for(file_extension))
+                    output_data, n_high, n_nan = convert_frame_counts(frame_data, pedestal_for(file_extension))
                     if n_high:
                         clipped_pixels += n_high
                         clipped_frames += 1
+                    if n_nan:
+                        nan_pixels += n_nan
+                        nan_frames += 1
 
                     # Validate output data before writing (always check for critical errors)
                     if output_data.size == 0:
@@ -169,7 +179,7 @@ class FileHandler:
                         if self.params.verbose:
                             conversion_stats['failed_frames'] += 1
 
-                self._report_clipped(filename, clipped_pixels, clipped_frames)
+                self._report_clipped(filename, clipped_pixels, clipped_frames, nan_pixels, nan_frames)
 
                 # Verbose conversion summary only
                 if self.params.verbose:
@@ -206,9 +216,9 @@ class FileHandler:
                     frame_data = frame_data[::-1]  # SER files need flip to match v0.1.1
 
                 # Round floats, add the pedestal, clip to 0..65535, cast to uint16
-                output_data, n_high = convert_frame(frame_data, pedestal_for(file_extension))
+                output_data, n_high, n_nan = convert_frame_counts(frame_data, pedestal_for(file_extension))
                 transformation_desc = self._transformation_desc(file_extension)
-                self._report_clipped(filename, n_high, 1 if n_high else 0)
+                self._report_clipped(filename, n_high, 1 if n_high else 0, n_nan, 1 if n_nan else 0)
 
                 # Validate output data
                 if output_data.size == 0:

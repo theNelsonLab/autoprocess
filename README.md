@@ -766,9 +766,11 @@ tools all convert pixels with one rule:
 3. the result is clipped to 0..65535 and stored as uint16.
 
 `.ser` frames are also flipped vertically, as before. A value above 65535 is stored as 65535,
-the largest value a TIF pixel can hold, and is integrated by XDS as 65535 (a lower bound on the
-true value): XDS flags only pixels above `OVERLOAD`, so with `OVERLOAD= 65535` they are not
-flagged. `autoprocess` logs how many pixels were clipped:
+the largest value a TIF pixel can hold. XDS flags a pixel as overloaded when it is above
+`OVERLOAD`, and `autoprocess` writes `OVERLOAD= 65534` in XDS.INP, so every pixel at 65535 --
+clipped here or saturated by the camera -- marks its reflection as overloaded: XDS rejects that
+reflection instead of integrating it at the cap, and CORRECT.LP reports how many were rejected.
+`autoprocess` logs how many pixels were clipped:
 
 ```
 WARNING: <n> pixel(s) in <k> frame(s) of <file> exceeded 65535 after the pedestal and were clipped to 65535 (saturated: their true values are higher)
@@ -776,7 +778,9 @@ WARNING: <n> pixel(s) in <k> frame(s) of <file> exceeded 65535 after the pedesta
 
 The tools write a "Data range ... exceeds uint16 range (0, 65535)" warning to their log for such
 a file instead. Values still negative after the pedestal become 0, which XDS treats as invalid
-(`MINIMUM_VALID_PIXEL_VALUE= 1`). `--raw` in the tools still writes the data unconverted.
+(`MINIMUM_VALID_PIXEL_VALUE= 1`); so do NaN pixels in float data, which `autoprocess` counts in
+a second warning (`WARNING: <n> NaN pixel(s) in <k> frame(s) of <file> were set to 0 (invalid
+for XDS)`). +inf becomes 65535 and -inf 0. `--raw` in the tools still writes the data unconverted.
 
 ## F30 TVIPS data: two configurations
 
@@ -928,6 +932,10 @@ This project is licensed under the GPL-3.0-or-later License.
     within range and whole-number floats convert exactly as before. One shared conversion serves
     `autoprocess`, its verification and the `mrc2tif`/`ser2tif`/`tvips2tif` tools. See
     "TIF conversion"
+  - **XDS `OVERLOAD= 65534`** (was 65535) for every microscope configuration: reflections with
+    saturated (65535) pixels are now flagged as overloaded and rejected instead of integrated at
+    the cap; CORRECT.LP reports them. This can lower low-resolution completeness slightly on data
+    that really saturate
   - `--beam-center` (experimental, off by default): the RANSAC seed of the halo-circle fallback is
     now a named constant with a different value, so a detected centre can differ in rare cases
     where that fallback decides the result

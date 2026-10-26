@@ -5,7 +5,7 @@ import argparse
 import warnings
 import seremi
 from pathlib import Path
-from pyautoprocess.tif_convert import convert_frame
+from pyautoprocess.tif_convert import convert_frame, range_after_pedestal
 
 class SERConverter:
     @staticmethod
@@ -142,8 +142,8 @@ class SERConverter:
     @staticmethod
     def check_data_range(data: np.ndarray, pedestal: int, file_logger: logging.Logger) -> bool:
         """Check if data will fit within uint16 range."""
-        min_val = np.min(data) + pedestal
-        max_val = np.max(data) + pedestal
+        # Python numbers: with NumPy 2, uint16 65535 + pedestal would wrap to a small value
+        min_val, max_val = range_after_pedestal(data, pedestal)
         
         if max_val > 65535:
             warning_msg = (
