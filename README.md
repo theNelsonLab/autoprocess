@@ -56,6 +56,7 @@ Primary tool for automated MicroED data processing using the XDS suite. Handles 
 #### Key Features
 - **File Processing**: Processes .mrc/.ser/.tvips files from specified paths or current directory
 - **Automatic Image Conversion**: Converts source files to XDS-compatible TIF format with validation
+  (see "TIF conversion" below for the exact pixel rule)
 - **Diffraction Quality Analysis**: Optional frame quality assessment and intelligent frame selection (--dqa)
 - **Dynamic XDS Optimization**: Automatic parameter adjustment for indexing, integration, and scaling
 - **Advanced Space Group Analysis**: Intelligent space group optimization using lattice analysis
@@ -337,7 +338,8 @@ Precision utility for converting MRC movie files to TIF format with comprehensiv
 - **Detailed Logging**: Split logging (file and console) with conversion statistics
 - **Recursive Processing**: Process files in subdirectories (--recursive)
 - **Custom Naming**: Flexible output file naming with --tif-name option
-- **Data Range Validation**: Automatic checking for uint16 overflow/underflow
+- **Data Range Validation**: Automatic checking for uint16 overflow/underflow; values outside
+  0..65535 are clipped, float data is rounded (see "TIF conversion")
 - **Directory Management**: Automatic 'images' subdirectory creation
 
 #### Usage
@@ -388,7 +390,7 @@ ser2tif [options]
 
 Options:
   --folder PATH           Path to folder containing SER files (default: current directory)
-  --ped VALUE            Pedestal value to add to each pixel (default: 0)
+  --ped VALUE            Pedestal value to add to each pixel (default: 200)
   --tif-name NAME        Base name for output TIF files (default: same as SER filename)
   --recursive            Search for SER files recursively in subdirectories
   --raw                  Convert data without any type conversion or modifications
@@ -426,7 +428,7 @@ tvips2tif [options]
 
 Options:
   --folder PATH           Path to folder containing TVIPS files (default: current directory)
-  --ped VALUE            Pedestal value to add to each pixel (default: 0)
+  --ped VALUE            Pedestal value to add to each pixel (default: 200)
   --tif-name NAME        Base name for output TIF files (default: same as TVIPS filename)
   --recursive            Search for TVIPS files recursively in subdirectories
   --raw                  Convert data without any type conversion or modifications
@@ -752,6 +754,30 @@ CC1/2: 95.1%
   group and cell are still printed, followed by one line
   `XSCALE statistics are not available: <reason>`. This never changes the outcome of a run.
 
+## TIF conversion
+
+`autoprocess` (and its read-back verification) and the `mrc2tif`, `ser2tif` and `tvips2tif`
+tools all convert pixels with one rule:
+
+1. float data (MRC modes 2 and 12) is rounded to the nearest integer, halves to even; integer
+   data is not changed;
+2. the pedestal is added: in `autoprocess`, +200 for `.ser` and +1 for `.mrc` and `.tvips`; in
+   the tools, `--ped` (default 0 for `mrc2tif`, 200 for `ser2tif` and `tvips2tif`);
+3. the result is clipped to 0..65535 and stored as uint16.
+
+`.ser` frames are also flipped vertically, as before. A value above 65535 is stored as 65535,
+the largest value a TIF pixel can hold, and is integrated by XDS as 65535 (a lower bound on the
+true value): XDS flags only pixels above `OVERLOAD`, so with `OVERLOAD= 65535` they are not
+flagged. `autoprocess` logs how many pixels were clipped:
+
+```
+WARNING: <n> pixel(s) in <k> frame(s) of <file> exceeded 65535 after the pedestal and were clipped to 65535 (saturated: their true values are higher)
+```
+
+The tools write a "Data range ... exceeds uint16 range (0, 65535)" warning to their log for such
+a file instead. Values still negative after the pedestal become 0, which XDS treats as invalid
+(`MINIMUM_VALID_PIXEL_VALUE= 1`). `--raw` in the tools still writes the data unconverted.
+
 ## F30 TVIPS data: two configurations
 
 TVIPS movies are converted to TIF exactly as recorded, with no flip or rotation. The lab's
@@ -894,6 +920,14 @@ This project is licensed under the GPL-3.0-or-later License.
     autoprocess.log"
   - New `autoprocess-summary` command: one file with the XSCALE statistics of every dataset under
     a directory
+  - **TIF conversion fix:** a value above 65535 after the pedestal used to wrap around to a small
+    number (65536 became 0; a raw `.ser` 65535 became 199), so XDS integrated a small value in
+    place of a saturated pixel. It is now clipped to 65535, and `autoprocess` logs how many pixels
+    were clipped. Float data (MRC modes 2 and 12) is now rounded (halves to even) instead of
+    truncated, which can change TIF values by at most 1 count for float MRC movies. Integer data
+    within range and whole-number floats convert exactly as before. One shared conversion serves
+    `autoprocess`, its verification and the `mrc2tif`/`ser2tif`/`tvips2tif` tools. See
+    "TIF conversion"
   - `--beam-center` (experimental, off by default): the RANSAC seed of the halo-circle fallback is
     now a named constant with a different value, so a detected centre can differ in rare cases
     where that fallback decides the result
